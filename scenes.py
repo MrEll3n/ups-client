@@ -284,6 +284,8 @@ def draw_round_result(
 
     my_move_display = my_move_display or "?"
 
+    opp_move_display = opp_move_display or "??"
+
     move_you = font_xl.render(
         my_move_display[0], True, (255, 255, 255)
     )  # První písmeno velké
