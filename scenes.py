@@ -282,6 +282,8 @@ def draw_round_result(
     lbl_you = font_b.render("YOU", True, (200, 200, 200))
     screen.blit(lbl_you, lbl_you.get_rect(center=(left_center[0], card_rect.y + 110)))
 
+    my_move_display = my_move_display or "?"
+
     move_you = font_xl.render(
         my_move_display[0], True, (255, 255, 255)
     )  # První písmeno velké
