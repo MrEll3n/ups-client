@@ -187,58 +187,123 @@ def draw_round_result(
 ) -> None:
     card_rect = pygame.Rect(card_rect_data)
 
+    # 1. Tmavé pozadí overlaye
     overlay = pygame.Surface((card_rect.width, card_rect.height), pygame.SRCALPHA)
-    pygame.draw.rect(overlay, (18, 18, 24, 230), overlay.get_rect(), border_radius=18)
+    pygame.draw.rect(overlay, (10, 10, 14, 235), overlay.get_rect(), border_radius=18)
+
+    # Okraj (barva se určí podle výsledku)
+    border_color = (100, 100, 120)
+
+    # 2. Parsování výsledku
+    parts = result_str.split(" | ")
+
+    title_text = "RESULT"
+    title_color = (255, 255, 255)
+
+    my_move_display = "?"
+    opp_move_display = "?"
+
+    move_map = {"R": "ROCK", "P": "PAPER", "S": "SCISSORS", "NONE": "-"}
+
+    if len(parts) == 3:
+        winner_id_str, p1_move, p2_move = parts
+
+        try:
+            winner_id = int(winner_id_str)
+            my_id = int(state.user_id) if state.user_id.isdigit() else -1
+        except ValueError:
+            winner_id = -1
+            my_id = -2
+
+        # Logika: Kdo vyhrál?
+        if winner_id == 0:
+            title_text = "DRAW"
+            title_color = (255, 230, 80)  # Žlutá
+            border_color = (200, 180, 50)
+        elif winner_id == my_id:
+            title_text = "VICTORY!"
+            title_color = (80, 255, 80)  # Zelená
+            border_color = (50, 200, 50)
+        else:
+            title_text = "DEFEAT"
+            title_color = (255, 80, 80)  # Červená
+            border_color = (200, 50, 50)
+
+        # Logika: Který tah byl můj?
+        # Snažíme se porovnat s tím, co jsme si uložili do state.last_move
+        # Pokud je remíza, tahy jsou stejné, takže je to jedno.
+        if p1_move == p2_move:
+            my_real_move = p1_move
+            opp_real_move = p2_move
+        elif state.last_move == p1_move:
+            my_real_move = p1_move
+            opp_real_move = p2_move
+        else:
+            # Pokud můj tah není p1, tak musí být p2 (nebo došlo k chybě, ale předpokládáme p2)
+            my_real_move = p2_move
+            opp_real_move = p1_move
+
+        my_move_display = move_map.get(my_real_move, my_real_move)
+        opp_move_display = move_map.get(opp_real_move, opp_real_move)
+
+    # Vykreslení rámečku
     pygame.draw.rect(
-        overlay, (180, 180, 210, 200), overlay.get_rect(), width=2, border_radius=18
+        overlay, border_color, overlay.get_rect(), width=2, border_radius=18
     )
     screen.blit(overlay, (card_rect.x, card_rect.y))
 
-    parts = result_str.split(" | ")
-
-    if len(parts) != 3:
-        title_text = "ERROR: Invalid Result Format"
-        color = (255, 50, 50)
-        detail_text = result_str
-    else:
-        winner_id, p1_move, p2_move = parts
-
-        try:
-            winner_num = int(winner_id)
-            user_id_int = int(state.user_id)
-        except ValueError:
-            winner_num = -1
-            user_id_int = -1
-
-        title_text = ""
-        color = (255, 255, 255)
-
-        if winner_num == 0:
-            title_text = "TIE!"
-            color = (255, 255, 120)
-        elif winner_num == user_id_int:
-            title_text = "YOU WIN ROUND!"
-            color = (120, 255, 120)
-        elif winner_num != -1:
-            title_text = "YOU LOSE ROUND"
-            color = (255, 120, 120)
-        else:
-            title_text = "ROUND FINISHED"
-
-        detail_text = f"P1: {p1_move} vs P2: {p2_move}"
-
-    title = font_xl.render(title_text, True, color)
-    screen.blit(title, title.get_rect(center=(card_rect.centerx, card_rect.y + 130)))
-
-    detail = font_b.render(detail_text, True, (200, 200, 220))
-    screen.blit(detail, detail.get_rect(center=(card_rect.centerx, card_rect.y + 200)))
-
-    hint = font_b.render(
-        f"New Round Starting in {int(state.round_result_ttl + 0.999)}s...",
-        True,
-        (150, 150, 180),
+    # --- HEADER (VÝSLEDEK) ---
+    title_surf = font_xl.render(title_text, True, title_color)
+    # Stín pod textem
+    title_shadow = font_xl.render(title_text, True, (0, 0, 0))
+    screen.blit(
+        title_shadow,
+        title_shadow.get_rect(center=(card_rect.centerx + 2, card_rect.y + 52)),
     )
-    screen.blit(hint, hint.get_rect(center=(card_rect.centerx, card_rect.bottom - 50)))
+    screen.blit(
+        title_surf, title_surf.get_rect(center=(card_rect.centerx, card_rect.y + 50))
+    )
+
+    # --- ROZDĚLENÍ OBRAZOVKY ---
+    mid_y = card_rect.centery + 10
+    left_center = (card_rect.x + card_rect.width // 4, mid_y)
+    right_center = (card_rect.x + 3 * card_rect.width // 4, mid_y)
+
+    # Čára uprostřed
+    pygame.draw.line(
+        screen,
+        (80, 80, 100),
+        (card_rect.centerx, card_rect.y + 90),
+        (card_rect.centerx, card_rect.bottom - 60),
+        2,
+    )
+
+    # --- LEVÁ STRANA (JA) ---
+    lbl_you = font_b.render("YOU", True, (200, 200, 200))
+    screen.blit(lbl_you, lbl_you.get_rect(center=(left_center[0], card_rect.y + 110)))
+
+    move_you = font_xl.render(
+        my_move_display[0], True, (255, 255, 255)
+    )  # První písmeno velké
+    screen.blit(move_you, move_you.get_rect(center=(left_center[0], mid_y)))
+
+    full_you = font_b.render(my_move_display, True, (150, 150, 170))
+    screen.blit(full_you, full_you.get_rect(center=(left_center[0], mid_y + 40)))
+
+    # --- PRAVÁ STRANA (SOUPEŘ) ---
+    lbl_opp = font_b.render("OPPONENT", True, (200, 200, 200))
+    screen.blit(lbl_opp, lbl_opp.get_rect(center=(right_center[0], card_rect.y + 110)))
+
+    move_opp = font_xl.render(opp_move_display[0], True, (255, 255, 255))
+    screen.blit(move_opp, move_opp.get_rect(center=(right_center[0], mid_y)))
+
+    full_opp = font_b.render(opp_move_display, True, (150, 150, 170))
+    screen.blit(full_opp, full_opp.get_rect(center=(right_center[0], mid_y + 40)))
+
+    # --- FOOTER (TIMER) ---
+    ttl = int(state.round_result_ttl + 0.9)
+    hint = font_b.render(f"Next round in {ttl}...", True, (120, 120, 140))
+    screen.blit(hint, hint.get_rect(center=(card_rect.centerx, card_rect.bottom - 30)))
 
 
 # =============================
@@ -438,30 +503,25 @@ class LobbyScene:
         self.font, self.font_b, self.font_xl, self.font_move = fonts
 
         cc_rect = pygame.Rect(CENTER_CARD)
+        top_rect = pygame.Rect(TOPBAR)
 
-        # --- LAYOUT / CENTROVÁNÍ ---
-
-        # Definujeme šířku obsahu (inputu a tlačítek)
+        # --- LAYOUT PRO VÝBĚR LOBBY ---
         content_width = 360
         input_height = 46
         btn_height = 48
         gap = 14
 
-        # X souřadnice začátku bloku (aby byl vycentrovaný)
         start_x = cc_rect.centerx - (content_width // 2)
+        input_y = cc_rect.centery - 40
 
-        # Y souřadnice - umístíme input trochu nad vertikální střed
-        input_y = cc_rect.centery - 30
-
-        # 1. Input Field
+        # Input Field
         self.inp_lobby = InputField(
             pygame.Rect(start_x, input_y, content_width, input_height), "Lobby Name"
         )
 
-        # 2. Tlačítka Create / Join (vedle sebe pod inputem)
-        # Šířka jednoho tlačítka = (celková šířka - mezera) / 2
+        # Tlačítka Create / Join
         btn_w = (content_width - gap) // 2
-        btns_y = input_y + input_height + gap + 10  # +10 px extra mezera
+        btns_y = input_y + input_height + gap + 10
 
         self.btn_create = HUDButton(
             pygame.Rect(start_x, btns_y, btn_w, btn_height), "CREATE"
@@ -470,12 +530,25 @@ class LobbyScene:
             pygame.Rect(start_x + btn_w + gap, btns_y, btn_w, btn_height), "JOIN"
         )
 
-        # 3. Tlačítko Logout (dole uprostřed)
-        # Uděláme ho užší a dáme ho úplně dolů
-        logout_w = 200
-        logout_x = cc_rect.centerx - (logout_w // 2)
+        # --- TLAČÍTKO LOGOUT (TOP BAR) ---
+        logout_w = 110
+        logout_h = 32
+        logout_x = top_rect.right - logout_w - 12
+        logout_y = top_rect.centery - (logout_h // 2)
+
         self.btn_logout = HUDButton(
-            pygame.Rect(logout_x, cc_rect.bottom - 60, logout_w, 42), "LOGOUT"
+            pygame.Rect(logout_x, logout_y, logout_w, logout_h), "LOGOUT"
+        )
+
+        # --- NOVÉ: TLAČÍTKO LEAVE LOBBY (PRO ČEKACÍ OBRAZOVKU) ---
+        # Umístíme ho do spodní části středové karty
+        leave_w = 180
+        leave_h = 44
+        leave_x = cc_rect.centerx - (leave_w // 2)
+        leave_y = cc_rect.bottom - 80
+
+        self.btn_leave_lobby = HUDButton(
+            pygame.Rect(leave_x, leave_y, leave_w, leave_h), "LEAVE LOBBY"
         )
 
     def _send(self, type_desc: str, *params: str) -> None:
@@ -486,10 +559,12 @@ class LobbyScene:
             log_err(self.state, f"Send failed: {ex}")
 
     def handle_event(self, e: pygame.event.Event) -> None:
+        # Input funguje jen když NEJSME v lobby
         if not self.state.in_lobby:
             self.inp_lobby.handle(e)
 
         if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+            # Akce pro Lobby Selection
             if not self.state.in_lobby:
                 if self.btn_create.hit(e.pos):
                     name = self.inp_lobby.text.strip()
@@ -507,9 +582,17 @@ class LobbyScene:
                     self.state.lobby_name = name
                     self._send("REQ_JOIN_LOBBY", name)
 
+            # Akce pro Waiting Room (Leave Lobby)
+            else:
+                if self.btn_leave_lobby.hit(e.pos):
+                    self._send("REQ_LEAVE_LOBBY")
+
+            # Logout funguje vždy (pokud jsme v lobby, server nás nejprve vyhodí z lobby)
             if self.btn_logout.hit(e.pos):
                 if self.state.in_lobby:
                     self._send("REQ_LEAVE_LOBBY")
+                    # Můžeme poslat i logout hned za tím, nebo počkat na potvrzení
+                    # Pro jednoduchost zde jen odejdeme z lobby
                 else:
                     self._send("REQ_LOGOUT")
 
@@ -525,11 +608,7 @@ class LobbyScene:
         if t == "RES_LOBBY_CREATED":
             self.state.in_lobby = True
             lobby_id = p[0] if p else ""
-            toast(
-                self.state,
-                f"Lobby created (ID: {lobby_id}) - Waiting for opponent...",
-                5.0,
-            )
+            toast(self.state, f"Lobby created (ID: {lobby_id})", 3.0)
             return None
 
         if t == "RES_LOBBY_JOINED":
@@ -569,6 +648,15 @@ class LobbyScene:
             return SceneId.CONNECT
 
         if t == "RES_ERROR":
+            # POJISTKA: Pokud chceme odejít, ale server říká error (např. že tam nejsme),
+            # tak násilně přepneme klienta do stavu "Nejsem v lobby".
+            # Tím se odblokuje UI.
+            if self.state.in_lobby and ("Unexpected" in str(p) or "state" in str(p)):
+                self.state.in_lobby = False
+                self.state.lobby_name = ""
+                toast(self.state, "Sync error: Resetting view.", 2.0)
+                return None
+
             toast(self.state, " | ".join(p) if p else "Server error", 4.0)
             return None
 
@@ -579,45 +667,56 @@ class LobbyScene:
 
         cc_rect = pygame.Rect(CENTER_CARD)
 
+        # --- HORNÍ LIŠTA ---
         draw_panel(screen, TOPBAR, "UPS – Rock Paper Scissors", self.font_b)
 
+        # Nick
+        nick_text = self.state.username if self.state.username else "Guest"
+        nick_surf = self.font_b.render(nick_text, True, (150, 255, 150))
+        nick_rect = nick_surf.get_rect(
+            midright=(self.btn_logout.rect.left - 15, self.btn_logout.rect.centery)
+        )
+        screen.blit(nick_surf, nick_rect)
+
+        # Logout button
+        mouse = pygame.mouse.get_pos()
+        # Text na tlačítku nahoře upravíme podle kontextu
+        if self.state.in_lobby:
+            self.btn_logout.text = "EXIT"
+        else:
+            self.btn_logout.text = "LOGOUT"
+        self.btn_logout.draw(screen, self.font_b, mouse)
+
+        # --- HLAVNÍ KARTA ---
         panel_title = "WAITING ROOM" if self.state.in_lobby else "LOBBY SELECTION"
         draw_panel(screen, CENTER_CARD, panel_title, self.font_b)
 
         draw_panel(screen, BOTTOM_HINT, "STATUS", self.font_b)
 
-        mouse = pygame.mouse.get_pos()
-
-        # --- LOGIKA VYKRESLOVÁNÍ ---
+        # --- OBSAH KARTY ---
 
         if self.state.in_lobby:
-            # === STAV: ČEKÁNÍ V LOBBY ===
+            # === WAITING ROOM ===
 
-            # Název lobby (Velký a vycentrovaný)
             title = self.font_xl.render(self.state.lobby_name, True, (100, 255, 100))
-            screen.blit(title, title.get_rect(center=(cc_rect.centerx, cc_rect.y + 90)))
+            screen.blit(title, title.get_rect(center=(cc_rect.centerx, cc_rect.y + 80)))
 
-            # Text Waiting...
             info = self.font_b.render("Waiting for opponent...", True, (200, 200, 220))
-            screen.blit(info, info.get_rect(center=(cc_rect.centerx, cc_rect.y + 140)))
+            screen.blit(info, info.get_rect(center=(cc_rect.centerx, cc_rect.y + 130)))
 
-            # Animace teček
             dots = "." * (int(pygame.time.get_ticks() / 500) % 4)
             loading = self.font_xl.render(dots, True, (255, 255, 255))
             screen.blit(
-                loading, loading.get_rect(center=(cc_rect.centerx, cc_rect.y + 180))
+                loading, loading.get_rect(center=(cc_rect.centerx, cc_rect.y + 160))
             )
 
-            # Tlačítko Leave
-            self.btn_logout.text = "LEAVE LOBBY"
-            self.btn_logout.draw(screen, self.font_b, mouse)
+            # NOVÉ: Tlačítko Leave Lobby uprostřed
+            self.btn_leave_lobby.draw(screen, self.font_b, mouse)
 
         else:
-            # === STAV: VÝBĚR LOBBY ===
+            # === LOBBY SELECTION ===
 
-            # Label "Enter Lobby Name" - vycentrovaný nad inputem
             lbl = self.font_b.render("Enter Lobby Name:", True, (180, 180, 200))
-            # Pozice labelu: zarovnáme na střed podle osy X inputu, a dáme ho o 25px výše
             screen.blit(
                 lbl,
                 lbl.get_rect(
@@ -630,24 +729,11 @@ class LobbyScene:
             self.btn_create.draw(screen, self.font_b, mouse)
             self.btn_join.draw(screen, self.font_b, mouse)
 
-            # Oddělovač
-            line_y = self.btn_join.rect.bottom + 25
-            pygame.draw.line(
-                screen,
-                (60, 60, 80),
-                (cc_rect.x + 40, line_y),
-                (cc_rect.right - 40, line_y),
-            )
-
-            self.btn_logout.text = "LOGOUT"
-            self.btn_logout.draw(screen, self.font_b, mouse)
-
-        # Spodní status bar
-        status_txt = f"Logged as: {self.state.username} (ID: {self.state.user_id})"
+        # Status Bar
         if self.state.in_lobby:
-            status_txt += " | Status: WAITING"
+            status_txt = "Status: WAITING FOR PLAYER 2"
         else:
-            status_txt += " | Status: BROWSING"
+            status_txt = "Status: BROWSING LOBBIES"
 
         status = self.font.render(status_txt, True, (180, 180, 200))
         bh_rect = pygame.Rect(BOTTOM_HINT)
@@ -664,6 +750,9 @@ class GameScene:
         self.font, self.font_b, self.font_xl, self.font_move = fonts
 
         cc_rect = pygame.Rect(CENTER_CARD)
+        top_rect = pygame.Rect(TOPBAR)
+
+        # Herní tlačítka
         x = cc_rect.x + 28
         w = cc_rect.width - 56
         y0 = cc_rect.y + 96
@@ -673,6 +762,19 @@ class GameScene:
         self.move_s = MoveButton(pygame.Rect(x, y0 + 176, w, 72), "S", "Scissors")
 
         self.reconnect_wait = False
+
+        # --- NOVÉ: TLAČÍTKO FORFEIT (V TOP BARU) ---
+        # Stejná pozice jako Logout v Lobby
+        forfeit_w = 110
+        forfeit_h = 32
+        forfeit_x = top_rect.right - forfeit_w - 12
+        forfeit_y = top_rect.centery - (forfeit_h // 2)
+
+        # Červený nádech tlačítka vyřešíme tím, že se jmenuje FORFEIT
+        # (HUDButton nemá vlastní barvu v konstruktoru, ale to nevadí)
+        self.btn_forfeit = HUDButton(
+            pygame.Rect(forfeit_x, forfeit_y, forfeit_w, forfeit_h), "FORFEIT"
+        )
 
     def _send(self, type_desc: str, *params: str):
         try:
@@ -691,6 +793,13 @@ class GameScene:
     def handle_event(self, e: pygame.event.Event):
         if self.state.round_result_visible or self.reconnect_wait:
             return
+
+        # Kliknutí na Forfeit (funguje vždy, když je aktivní input)
+        if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+            if self.btn_forfeit.hit(e.pos):
+                # Odesláním LEAVE_LOBBY během hry se hra vzdává
+                self._send("REQ_LEAVE_LOBBY")
+                return
 
         if e.type == pygame.KEYDOWN:
             if e.key == pygame.K_r:
@@ -738,16 +847,12 @@ class GameScene:
             self.reconnect_wait = True
             return None
 
-        # === ODEMČENÍ TLAČÍTEK PO RECONNECTU ===
         if msg.type_desc == "RES_GAME_RESUMED":
             toast(self.state, "Opponent reconnected! Play again!", 2.0)
             self.reconnect_wait = False
-
-            # Resetujeme čekání -> tlačítka se znovu aktivují
             self.state.waiting_for_opponent = False
             self.state.last_move = ""
             return None
-        # =======================================
 
         if msg.type_desc == "RES_GAME_STARTED":
             self.reconnect_wait = False
@@ -762,7 +867,11 @@ class GameScene:
 
         if msg.type_desc == "RES_LOBBY_LEFT":
             self.state.in_game = False
-            self.state.in_lobby = True
+            self.state.in_lobby = False
+            self.state.lobby_name = ""
+            self.state.waiting_for_rematch = False
+
+            toast(self.state, "Left match.", 2.5)
             self.state.scene = SceneId.LOBBY
             return SceneId.LOBBY
 
@@ -783,7 +892,19 @@ class GameScene:
 
         mouse = pygame.mouse.get_pos()
 
-        # --- VYKRESLENÍ ČEKACÍ OBRAZOVKY ---
+        # --- TOP BAR (FORFEIT TLAČÍTKO) ---
+        # Vykreslíme tlačítko Forfeit vpravo nahoře
+        self.btn_forfeit.draw(screen, self.font_b, mouse)
+
+        # Nick hráče vedle tlačítka (volitelné, pro konzistenci s lobby)
+        nick_text = self.state.username if self.state.username else "Guest"
+        nick_surf = self.font_b.render(nick_text, True, (150, 255, 150))
+        nick_rect = nick_surf.get_rect(
+            midright=(self.btn_forfeit.rect.left - 15, self.btn_forfeit.rect.centery)
+        )
+        screen.blit(nick_surf, nick_rect)
+        # ----------------------------------
+
         if self.reconnect_wait:
             cc_rect = pygame.Rect(CENTER_CARD)
             overlay = pygame.Surface((cc_rect.width, cc_rect.height), pygame.SRCALPHA)
@@ -805,7 +926,6 @@ class GameScene:
             draw_toast(screen, TOPBAR, self.font, self.state)
             draw_debug(screen, self.font, self.state, W, H)
             return
-        # -----------------------------------
 
         if self.state.round_result_visible:
             draw_round_result(
@@ -816,7 +936,6 @@ class GameScene:
                 self.font_b,
                 self.state,
             )
-        # Pokud nečekáme na soupeře, zobrazíme tlačítka
         elif self.state.waiting_for_opponent:
             draw_waiting_screen(
                 screen,
@@ -847,9 +966,8 @@ class AfterMatchScene:
         y = cc_rect.y + 180
 
         self.btn_rematch = HUDButton(pygame.Rect(x, y, w, 48), "REMATCH")
-        self.btn_exit = HUDButton(pygame.Rect(x, y + 60, w, 48), "EXIT TO LOBBY")
+        self.btn_exit = HUDButton(pygame.Rect(x, y + 60, w, 48), "EXIT TO MENU")
 
-    # FIX: Přidán try-except blok
     def _send(self, type_desc: str, *params: str):
         try:
             self.client.send(type_desc, *params)
@@ -858,7 +976,7 @@ class AfterMatchScene:
             log_err(self.state, f"Send failed: {ex}")
 
     def handle_event(self, e: pygame.event.Event):
-        # Pokud už čekáme na rematch, ignorujeme vstupy na tlačítka
+        # Pokud už čekáme na rematch, ignorujeme vstupy na Rematch
         if self.state.waiting_for_rematch:
             # Povolit EXIT i během čekání
             if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
@@ -869,6 +987,9 @@ class AfterMatchScene:
         if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
             if self.btn_rematch.hit(e.pos):
                 self._send("REQ_REMATCH")
+                # Ihned zamkneme tlačítko, aby nešlo poslat 2x
+                self.state.waiting_for_rematch = True
+
             elif self.btn_exit.hit(e.pos):
                 self._send("REQ_LEAVE_LOBBY")
 
@@ -888,8 +1009,7 @@ class AfterMatchScene:
             self.state.last_round = ""
             self.state.round_result_visible = False
             self.state.round_result_ttl = 0.0
-
-            self.state.waiting_for_rematch = False  # Reset
+            self.state.waiting_for_rematch = False
 
             toast(self.state, "Rematch started!", 2.5)
             self.state.scene = SceneId.GAME
@@ -898,18 +1018,26 @@ class AfterMatchScene:
         if msg.type_desc == "RES_GAME_CANNOT_CONTINUE":
             reason = msg.params[0] if msg.params else "Game ended"
             toast(self.state, f"{reason}", 3.0)
-            self.state.waiting_for_rematch = False  # Reset
+            self.state.waiting_for_rematch = False
             return None
 
+        # --- ZDE BYLA CHYBA: Musíme resetovat in_lobby na False ---
         if msg.type_desc == "RES_LOBBY_LEFT":
             self.state.in_game = False
-            self.state.in_lobby = True
-            self.state.waiting_for_rematch = False  # Reset
-            toast(self.state, "Left match, back in lobby.", 2.5)
+            self.state.in_lobby = False  # <--- TOTO CHYBĚLO
+            self.state.lobby_name = ""  # Vyčistíme název lobby
+            self.state.waiting_for_rematch = False
+
+            toast(self.state, "Left match, back in menu.", 2.5)
             self.state.scene = SceneId.LOBBY
             return SceneId.LOBBY
+        # ----------------------------------------------------------
 
         if msg.type_desc == "RES_ERROR":
+            # Pokud nastane chyba (např. Rematch failed), zrušíme čekání
+            if self.state.waiting_for_rematch:
+                self.state.waiting_for_rematch = False
+
             toast(
                 self.state,
                 " | ".join(msg.params) if msg.params else "Server error",
@@ -932,6 +1060,7 @@ class AfterMatchScene:
         except ValueError:
             me = -1
 
+        # Vykreslení výsledku (WIN / LOSE / TIE)
         if winner == me:
             txt = self.font_xl.render("YOU WIN!", True, (120, 255, 120))
         elif winner == 0:
