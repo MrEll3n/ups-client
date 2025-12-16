@@ -282,13 +282,10 @@ def draw_round_result(
     lbl_you = font_b.render("YOU", True, (200, 200, 200))
     screen.blit(lbl_you, lbl_you.get_rect(center=(left_center[0], card_rect.y + 110)))
 
-    my_move_display = my_move_display or "?"
+    my_move_display = my_move_display or "-"
+    opp_move_display = opp_move_display or "-"
 
-    opp_move_display = opp_move_display or "??"
-
-    move_you = font_xl.render(
-        my_move_display[0], True, (255, 255, 255)
-    )  # První písmeno velké
+    move_you = font_xl.render(safe_first_char(my_move_display), True, (255, 255, 255))
     screen.blit(move_you, move_you.get_rect(center=(left_center[0], mid_y)))
 
     full_you = font_b.render(my_move_display, True, (150, 150, 170))
@@ -298,7 +295,7 @@ def draw_round_result(
     lbl_opp = font_b.render("OPPONENT", True, (200, 200, 200))
     screen.blit(lbl_opp, lbl_opp.get_rect(center=(right_center[0], card_rect.y + 110)))
 
-    move_opp = font_xl.render(opp_move_display[0], True, (255, 255, 255))
+    move_opp = font_xl.render(safe_first_char(opp_move_display), True, (255, 255, 255))
     screen.blit(move_opp, move_opp.get_rect(center=(right_center[0], mid_y)))
 
     full_opp = font_b.render(opp_move_display, True, (150, 150, 170))
@@ -309,6 +306,10 @@ def draw_round_result(
     hint = font_b.render(f"Next round in {ttl}...", True, (120, 120, 140))
     screen.blit(hint, hint.get_rect(center=(card_rect.centerx, card_rect.bottom - 30)))
 
+def safe_first_char(s: Optional[str], fallback: str = "?") -> str:
+    if not s:
+        return fallback
+    return s[0]
 
 # =============================
 # Scenes
