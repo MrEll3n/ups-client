@@ -765,6 +765,7 @@ class GameScene:
         self.move_s = MoveButton(pygame.Rect(x, y0 + 176, w, 72), "S", "Scissors")
 
         self.reconnect_wait = False
+        # Tlačítko pro vzdání hry v horní liště
         self.btn_forfeit = HUDButton(
             pygame.Rect(top_rect.right - 122, top_rect.y + 12, 110, 32), "FORFEIT"
         )
@@ -793,7 +794,6 @@ class GameScene:
                 self._send("REQ_LEAVE_LOBBY")
                 return
 
-            # Pokud ještě hráč nevsadil, kontrolujeme tlačítka tahů
             if not self.state.waiting_for_opponent:
                 if self.move_r.hit(e.pos):
                     self._choose("R")
@@ -811,17 +811,22 @@ class GameScene:
                 self._choose("S")
 
     def on_message(self, msg: Message) -> Optional[SceneId]:
+        # Heartbeat: aktualizujeme čas kontaktu se serverem
         self.state.last_server_contact = pygame.time.get_ticks()
 
+        if msg.type_desc == "RES_PING":
+            if msg.params:
+                self._send("REQ_PONG", msg.params[0])
+            return None
+
         if msg.type_desc == "RES_STATE":
-            # Parsování: score=1:2;hasMoved=true;phase=InGame;
+            # Parsování: score=1:2;hasMoved=true;
             p_dict = {}
             for part in msg.params[0].split(";"):
                 if "=" in part:
                     k, v = part.split("=", 1)
                     p_dict[k] = v
 
-            # Synchronizace skóre
             if "score" in p_dict:
                 try:
                     s1, s2 = p_dict["score"].split(":")
@@ -829,22 +834,16 @@ class GameScene:
                 except ValueError:
                     pass
 
-            # Synchronizace stavu tahu (DŮLEŽITÉ PRO RECONNECT)
-            if "hasMoved" in p_dict:
-                if p_dict["hasMoved"] == "true":
-                    self.state.waiting_for_opponent = True
-                    # Pokud nevíme přesně, co jsme dali (např. po restartu aplikace),
-                    # dáme tam aspoň otazník, aby draw_waiting_screen nespadla
-                    if not self.state.last_move:
-                        self.state.last_move = "?"
-                else:
-                    self.state.waiting_for_opponent = False
+            if p_dict.get("hasMoved") == "true":
+                self.state.waiting_for_opponent = True
+                if not self.state.last_move:
+                    self.state.last_move = "?"
             return None
 
         if msg.type_desc in ("RES_GAME_STARTED", "RES_GAME_RESUMED"):
             self.reconnect_wait = False
-            # Zde waiting_for_opponent neresetujeme na False,
-            # protože o tom rozhoduje RES_STATE výše
+            # DŮLEŽITÉ: Nemažeme last_move ani waiting_for_opponent,
+            # o tom rozhoduje RES_STATE výše
             return None
 
         if msg.type_desc == "RES_ROUND_RESULT":
@@ -860,7 +859,41 @@ class GameScene:
             toast(self.state, f"Opponent disconnected! Waiting {msg.params[0]}s", 5.0)
             return None
 
-        # ... (zbytek zpráv: MATCH_RESULT, LOBBY_LEFT, ERROR) ...
+        # --- ZBYTEK METODY ---
+        if msg.type_desc == "RES_MATCH_RESULT":
+            p = msg.params
+            # p[0] = winnerUserId, p[1] = p1Wins, p[2] = p2Wins
+            self.state.last_match_winner_id = int(p[0])
+            self.state.last_match_p1wins, self.state.last_match_p2wins = (
+                int(p[1]),
+                int(p[2]),
+            )
+            self.state.round_result_visible = False
+            self.reconnect_wait = False
+            return SceneId.AFTER_MATCH
+
+        if (
+            msg.type_desc == "RES_LOBBY_LEFT"
+            or msg.type_desc == "RES_GAME_CANNOT_CONTINUE"
+        ):
+            self.state.in_game = self.state.in_lobby = False
+            self.state.lobby_name = ""
+            if msg.type_desc == "RES_GAME_CANNOT_CONTINUE":
+                toast(
+                    self.state,
+                    f"Game ended: {msg.params[0] if msg.params else 'unknown reason'}",
+                    4.0,
+                )
+            return SceneId.LOBBY
+
+        if msg.type_desc == "RES_ERROR":
+            toast(
+                self.state,
+                " | ".join(msg.params) if msg.params else "Server error",
+                4.0,
+            )
+            return None
+
         return None
 
     def draw(self, screen: pygame.Surface):
@@ -874,10 +907,11 @@ class GameScene:
         mouse = pygame.mouse.get_pos()
         self.btn_forfeit.draw(screen, self.font_b, mouse)
 
-        if self.reconnect_wait or (
+        is_local_timeout = (
             pygame.time.get_ticks() - self.state.last_server_contact > 5000
-        ):
-            # Overlay pro odpojení (místní nebo soupeřovo)
+        )
+
+        if self.reconnect_wait or is_local_timeout:
             overlay = pygame.Surface((cc.width, cc.height), pygame.SRCALPHA)
             pygame.draw.rect(
                 overlay, (0, 0, 0, 210), overlay.get_rect(), border_radius=18
@@ -886,7 +920,7 @@ class GameScene:
 
             txt = (
                 "CONNECTION INTERRUPTED"
-                if not self.reconnect_wait
+                if is_local_timeout
                 else "OPPONENT DISCONNECTED"
             )
             t_surf = self.font_b.render(txt, True, (255, 100, 100))
@@ -903,7 +937,6 @@ class GameScene:
             )
 
         elif self.state.waiting_for_opponent:
-            # Zobrazí commited tah (i po reconnectu díky hasMoved)
             draw_waiting_screen(
                 screen,
                 CENTER_CARD,

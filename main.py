@@ -65,12 +65,12 @@ def main():
                 if "Disconnected" in err or "Send failed" in err:
                     client.close()
                     if state.username and state.in_game:
-                        log_sys(state, "Connection lost. Retrying in 1s...")
-                        pygame.time.wait(1000)
+                        log_sys(state, "Connection lost. Waiting 1s before retry...")
+                        pygame.time.wait(1000)  # Klíčová pauza pro stabilizaci sítě
                         try:
                             client.connect()
                             if client.connected:
-                                # DŮLEŽITÉ: Resetujeme čas kontaktu hned po připojení
+                                # RESETUJEME čas kontaktu, aby si klient hned nedal vlastní timeout
                                 state.last_server_contact = pygame.time.get_ticks()
                                 client.send("REQ_LOGIN", state.username)
                                 log_sys(
