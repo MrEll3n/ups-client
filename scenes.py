@@ -811,87 +811,70 @@ class GameScene:
                 self._choose("S")
 
     def on_message(self, msg: Message) -> Optional[SceneId]:
-        # Heartbeat: aktualizujeme čas kontaktu se serverem
         self.state.last_server_contact = pygame.time.get_ticks()
 
+        # Reakce na Heartbeat
         if msg.type_desc == "RES_PING":
             if msg.params:
                 self._send("REQ_PONG", msg.params[0])
             return None
 
         if msg.type_desc == "RES_STATE":
-            # Parsování: score=1:2;hasMoved=true;
-            p_dict = {}
-            for part in msg.params[0].split(";"):
-                if "=" in part:
-                    k, v = part.split("=", 1)
-                    p_dict[k] = v
-
+            # Synchronizace stavu (viz předchozí úpravy)
+            p_dict = {
+                p.split("=")[0]: p.split("=")[1]
+                for p in msg.params[0].split(";")
+                if "=" in p
+            }
             if "score" in p_dict:
-                try:
-                    s1, s2 = p_dict["score"].split(":")
-                    self.state.p1_wins, self.state.p2_wins = int(s1), int(s2)
-                except ValueError:
-                    pass
+                s1, s2 = p_dict["score"].split(":")
+                self.state.p1_wins, self.state.p2_wins = int(s1), int(s2)
 
             if p_dict.get("hasMoved") == "true":
                 self.state.waiting_for_opponent = True
                 if not self.state.last_move:
                     self.state.last_move = "?"
+            else:
+                # Pokud server říká, že jsme nevsadili, ale my si to myslíme (po reconnectu), odblokujeme to
+                self.state.waiting_for_opponent = False
             return None
 
-        if msg.type_desc in ("RES_GAME_STARTED", "RES_GAME_RESUMED"):
+        if msg.type_desc == "RES_GAME_RESUMED":
             self.reconnect_wait = False
-            # DŮLEŽITÉ: Nemažeme last_move ani waiting_for_opponent,
-            # o tom rozhoduje RES_STATE výše
+            toast(self.state, "Connection restored!", 2.0)
             return None
+
+        # KLÍČOVÉ PRO TVŮJ PROBLÉM: Návrat do lobby
+        if msg.type_desc in ("RES_LOBBY_LEFT", "RES_GAME_CANNOT_CONTINUE"):
+            self.state.in_game = False
+            self.state.in_lobby = False
+            self.state.waiting_for_opponent = False
+            self.state.round_result_visible = False
+            self.reconnect_wait = False
+
+            reason = msg.params[0] if msg.params else "Game ended"
+            toast(self.state, f"Exit: {reason}", 4.0)
+            return SceneId.LOBBY
 
         if msg.type_desc == "RES_ROUND_RESULT":
             self.state.last_round = " | ".join(msg.params)
             self.state.waiting_for_opponent = False
             self.state.round_result_visible = True
             self.state.round_result_ttl = 3.0
-            self.state.last_move = ""
             return None
 
-        if msg.type_desc == "RES_OPPONENT_DISCONNECTED":
-            self.reconnect_wait = True
-            toast(self.state, f"Opponent disconnected! Waiting {msg.params[0]}s", 5.0)
-            return None
-
-        # --- ZBYTEK METODY ---
         if msg.type_desc == "RES_MATCH_RESULT":
             p = msg.params
-            # p[0] = winnerUserId, p[1] = p1Wins, p[2] = p2Wins
             self.state.last_match_winner_id = int(p[0])
             self.state.last_match_p1wins, self.state.last_match_p2wins = (
                 int(p[1]),
                 int(p[2]),
             )
             self.state.round_result_visible = False
-            self.reconnect_wait = False
             return SceneId.AFTER_MATCH
 
-        if (
-            msg.type_desc == "RES_LOBBY_LEFT"
-            or msg.type_desc == "RES_GAME_CANNOT_CONTINUE"
-        ):
-            self.state.in_game = self.state.in_lobby = False
-            self.state.lobby_name = ""
-            if msg.type_desc == "RES_GAME_CANNOT_CONTINUE":
-                toast(
-                    self.state,
-                    f"Game ended: {msg.params[0] if msg.params else 'unknown reason'}",
-                    4.0,
-                )
-            return SceneId.LOBBY
-
-        if msg.type_desc == "RES_ERROR":
-            toast(
-                self.state,
-                " | ".join(msg.params) if msg.params else "Server error",
-                4.0,
-            )
+        if msg.type_desc == "RES_OPPONENT_DISCONNECTED":
+            self.reconnect_wait = True
             return None
 
         return None
