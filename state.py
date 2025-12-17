@@ -1,3 +1,4 @@
+# state.py
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import List
@@ -25,9 +26,10 @@ class AppState:
     last_move: str = ""
     waiting_for_opponent: bool = False
 
-    # NOVÉ: Průběžné skóre zápasu pro synchronizaci
+    # NOVÉ: Pro Reconnect a synchronizaci
     p1_wins: int = 0
     p2_wins: int = 0
+    last_server_contact: float = 0.0  # Čas posledního přijatého paketu
 
     round_result_visible: bool = False
     round_result_ttl: float = 0.0
@@ -56,23 +58,17 @@ TOPBAR = (M, M, W - 2 * M, 56)
 CENTER_CARD = ((W - 520) // 2, (H - 360) // 2, 520, 360)
 BOTTOM_HINT = (M, H - 90, W - 2 * M, 68)
 
-_SUPPRESS_WIRE = {"RES_PING", "REQ_PONG"}
-
 
 def wire_str(type_desc: str, *params: str) -> str:
     return f"{PROTOCOL_MAGIC}|{type_desc}|{'|'.join(params)}|"
 
 
 def log_tx(state: AppState, type_desc: str, *params: str) -> None:
-    if type_desc in _SUPPRESS_WIRE and not state.debug_visible:
-        return
     line = f"[TX] {wire_str(type_desc, *params)}"
     state.log.append(line)
 
 
 def log_rx(state: AppState, msg: Message) -> None:
-    if msg.type_desc in _SUPPRESS_WIRE and not state.debug_visible:
-        return
     line = f"[RX] {msg}"
     state.log.append(line)
 

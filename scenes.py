@@ -755,55 +755,47 @@ class GameScene:
         self.client = client
         self.state = state
         self.font, self.font_b, self.font_xl, self.font_move = fonts
-
         cc_rect = pygame.Rect(CENTER_CARD)
         top_rect = pygame.Rect(TOPBAR)
 
-        # Herní tlačítka
-        x = cc_rect.x + 28
-        w = cc_rect.width - 56
-        y0 = cc_rect.y + 96
-
+        x, w, y0 = cc_rect.x + 28, cc_rect.width - 56, cc_rect.y + 96
         self.move_r = MoveButton(pygame.Rect(x, y0, w, 72), "R", "Rock")
         self.move_p = MoveButton(pygame.Rect(x, y0 + 88, w, 72), "P", "Paper")
         self.move_s = MoveButton(pygame.Rect(x, y0 + 176, w, 72), "S", "Scissors")
 
         self.reconnect_wait = False
-
-        # Tlačítko FORFEIT (Vzdát se) v horní liště
-        forfeit_w = 110
-        forfeit_h = 32
-        forfeit_x = top_rect.right - forfeit_w - 12
-        forfeit_y = top_rect.centery - (forfeit_h // 2)
-
         self.btn_forfeit = HUDButton(
-            pygame.Rect(forfeit_x, forfeit_y, forfeit_w, forfeit_h), "FORFEIT"
+            pygame.Rect(top_rect.right - 122, top_rect.y + 12, 110, 32), "FORFEIT"
         )
 
-    def _send(self, type_desc: str, *params: str):
+    def _send(self, type_desc, *params):
         try:
             self.client.send(type_desc, *params)
             log_tx(self.state, type_desc, *params)
-        except Exception as ex:
-            log_err(self.state, f"Send failed: {ex}")
+        except Exception as e:
+            log_err(self.state, f"Send failed: {e}")
 
-    def _choose(self, move: str):
+    def _choose(self, move):
         if self.state.waiting_for_opponent or self.state.round_result_visible:
             return
         self.state.last_move = move
         self.state.waiting_for_opponent = True
         self._send("REQ_MOVE", move)
 
-    def handle_event(self, e: pygame.event.Event):
+    def handle_event(self, e):
         if self.state.round_result_visible or self.reconnect_wait:
             return
-
         if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
             if self.btn_forfeit.hit(e.pos):
                 self._send("REQ_LEAVE_LOBBY")
-                return
-
-        if e.type == pygame.KEYDOWN:
+            if not self.state.waiting_for_opponent:
+                if self.move_r.hit(e.pos):
+                    self._choose("R")
+                elif self.move_p.hit(e.pos):
+                    self._choose("P")
+                elif self.move_s.hit(e.pos):
+                    self._choose("S")
+        if e.type == pygame.KEYDOWN and not self.state.waiting_for_opponent:
             if e.key == pygame.K_r:
                 self._choose("R")
             elif e.key == pygame.K_p:
@@ -811,45 +803,25 @@ class GameScene:
             elif e.key == pygame.K_s:
                 self._choose("S")
 
-        if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
-            if self.move_r.hit(e.pos):
-                self._choose("R")
-            elif self.move_p.hit(e.pos):
-                self._choose("P")
-            elif self.move_s.hit(e.pos):
-                self._choose("S")
-
     def on_message(self, msg: Message) -> Optional[SceneId]:
-        if msg.type_desc == "RES_PING":
-            if msg.params:
-                self._send("REQ_PONG", msg.params[0])
-            return None
+        # Aktualizace času kontaktu pro local disconnect
+        self.state.last_server_contact = pygame.time.get_ticks()
 
-        # Synchronizace stavu (skóre) ze serveru při reconnectu
         if msg.type_desc == "RES_STATE":
-            params_dict = {}
-            # Rozsekání parametrů: score=1:2;phase=InGame;
-            for part in msg.params[0].split(";"):
-                if "=" in part:
-                    k, v = part.split("=", 1)
-                    params_dict[k] = v
-
-            if "score" in params_dict:
-                try:
-                    s1, s2 = params_dict["score"].split(":")
-                    self.state.p1_wins = int(s1)
-                    self.state.p2_wins = int(s2)
-                    toast(self.state, f"State Synced! Score {s1}:{s2}", 2.0)
-                except ValueError:
-                    pass
+            p_dict = {
+                k: v
+                for k, v in (
+                    part.split("=") for part in msg.params[0].split(";") if "=" in part
+                )
+            }
+            if "score" in p_dict:
+                s1, s2 = p_dict["score"].split(":")
+                self.state.p1_wins, self.state.p2_wins = int(s1), int(s2)
             return None
 
-        # Resetování UI při obnovení hry
         if msg.type_desc in ("RES_GAME_STARTED", "RES_GAME_RESUMED"):
             self.reconnect_wait = False
-            self.state.waiting_for_opponent = False
-            self.state.round_result_visible = False
-            self.state.last_move = ""
+            # NEMAŽEME last_move, pokud čekáme na soupeře
             return None
 
         if msg.type_desc == "RES_ROUND_RESULT":
@@ -857,83 +829,54 @@ class GameScene:
             self.state.waiting_for_opponent = False
             self.state.round_result_visible = True
             self.state.round_result_ttl = 3.0
+            self.state.last_move = ""
+            return None
+
+        if msg.type_desc == "RES_OPPONENT_DISCONNECTED":
+            self.reconnect_wait = True
+            toast(self.state, f"Opponent disconnected! Waiting {msg.params[0]}s", 5.0)
             return None
 
         if msg.type_desc == "RES_MATCH_RESULT":
             p = msg.params
-            self.state.last_match_winner_id = int(p[0])
-            self.state.last_match_p1wins = int(p[1])
-            self.state.last_match_p2wins = int(p[2])
+            (
+                self.state.last_match_winner_id,
+                self.state.last_match_p1wins,
+                self.state.last_match_p2wins,
+            ) = int(p[0]), int(p[1]), int(p[2])
             self.state.round_result_visible = False
             self.state.scene = SceneId.AFTER_MATCH
-            self.reconnect_wait = False
             return SceneId.AFTER_MATCH
 
-        if msg.type_desc == "RES_OPPONENT_DISCONNECTED":
-            ttl = msg.params[0]
-            toast(self.state, f"Opponent disconnected. Waiting {ttl}s...", float(ttl))
-            self.reconnect_wait = True
-            return None
-
         if msg.type_desc == "RES_LOBBY_LEFT":
-            self.state.in_game = False
-            self.state.in_lobby = False
-            self.state.lobby_name = ""
-            toast(self.state, "Left match.", 2.5)
-            self.state.scene = SceneId.LOBBY
+            self.state.in_game = self.state.in_lobby = False
             return SceneId.LOBBY
-
-        if msg.type_desc == "RES_ERROR":
-            toast(
-                self.state,
-                " | ".join(msg.params) if msg.params else "Server error",
-                4.0,
-            )
-            return None
 
         return None
 
-    def draw(self, screen: pygame.Surface):
+    def draw(self, screen):
         draw_background(screen)
-        draw_panel(screen, TOPBAR, "GAME", self.font_b)
+        # Skóre v horní liště
+        score_text = f"SCORE: {self.state.p1_wins} - {self.state.p2_wins}"
+        draw_panel(screen, TOPBAR, f"GAME | {score_text}", self.font_b)
         draw_panel(screen, CENTER_CARD, "ROCK · PAPER · SCISSORS", self.font_b)
 
         mouse = pygame.mouse.get_pos()
         self.btn_forfeit.draw(screen, self.font_b, mouse)
 
-        # Vykreslení nicku a skóre
-        cc_rect = pygame.Rect(CENTER_CARD)
-        nick_text = self.state.username if self.state.username else "Guest"
-        nick_surf = self.font_b.render(nick_text, True, (150, 255, 150))
-        screen.blit(
-            nick_surf,
-            nick_surf.get_rect(
-                midright=(
-                    self.btn_forfeit.rect.left - 15,
-                    self.btn_forfeit.rect.centery,
-                )
-            ),
-        )
-
-        # Zobrazení aktuálního skóre zápasu (důležité pro přehled po reconnectu)
-        score_txt = f"MATCH SCORE: {self.state.p1_wins} - {self.state.p2_wins}"
-        s_surf = self.font_b.render(score_txt, True, (200, 200, 220))
-        screen.blit(s_surf, s_surf.get_rect(center=(cc_rect.centerx, cc_rect.y + 75)))
-
         if self.reconnect_wait:
-            overlay = pygame.Surface((cc_rect.width, cc_rect.height), pygame.SRCALPHA)
+            cc = pygame.Rect(CENTER_CARD)
+            overlay = pygame.Surface((cc.width, cc.height), pygame.SRCALPHA)
             pygame.draw.rect(
                 overlay, (0, 0, 0, 200), overlay.get_rect(), border_radius=18
             )
-            screen.blit(overlay, (cc_rect.x, cc_rect.y))
-            txt = self.font_b.render("OPPONENT DISCONNECTED", True, (255, 100, 100))
-            screen.blit(
-                txt, txt.get_rect(center=(cc_rect.centerx, cc_rect.centery - 20))
+            screen.blit(overlay, (cc.x, cc.y))
+            txt = self.font_b.render("CONNECTION INTERRUPTED", True, (255, 100, 100))
+            screen.blit(txt, txt.get_rect(center=(cc.centerx, cc.centery - 20)))
+            sub = self.font.render(
+                "Attempting to restore session...", True, (200, 200, 220)
             )
-            sub = self.font.render("Waiting for reconnection...", True, (200, 200, 200))
-            screen.blit(
-                sub, sub.get_rect(center=(cc_rect.centerx, cc_rect.centery + 20))
-            )
+            screen.blit(sub, sub.get_rect(center=(cc.centerx, cc.centery + 20)))
         elif self.state.round_result_visible:
             draw_round_result(
                 screen,
