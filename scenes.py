@@ -811,73 +811,43 @@ class GameScene:
                 self._choose("S")
 
     def on_message(self, msg: Message) -> Optional[SceneId]:
+        # Resetujeme časovač ticha serveru při každé zprávě
         self.state.last_server_contact = pygame.time.get_ticks()
 
-        # Reakce na Heartbeat
-        if msg.type_desc == "RES_PING":
-            if msg.params:
-                self._send("REQ_PONG", msg.params[0])
-            return None
-
         if msg.type_desc == "RES_STATE":
-            # Synchronizace stavu (viz předchozí úpravy)
+            log_sys(
+                self.state, f"SYNC: New world state: {msg.params[0]}"
+            )  # Debug do terminálu i konzole
+
             p_dict = {
                 p.split("=")[0]: p.split("=")[1]
                 for p in msg.params[0].split(";")
                 if "=" in p
             }
             if "score" in p_dict:
+                log_sys(self.state, f"SYNC: Match score updated to {p_dict['score']}")
                 s1, s2 = p_dict["score"].split(":")
                 self.state.p1_wins, self.state.p2_wins = int(s1), int(s2)
 
             if p_dict.get("hasMoved") == "true":
+                log_sys(self.state, "SYNC: Server remembers your move. Locking UI.")
                 self.state.waiting_for_opponent = True
                 if not self.state.last_move:
                     self.state.last_move = "?"
-            else:
-                # Pokud server říká, že jsme nevsadili, ale my si to myslíme (po reconnectu), odblokujeme to
-                self.state.waiting_for_opponent = False
             return None
 
         if msg.type_desc == "RES_GAME_RESUMED":
+            log_sys(self.state, "SESSION: Server confirmed game resumption.")
             self.reconnect_wait = False
-            toast(self.state, "Connection restored!", 2.0)
             return None
-
-        # KLÍČOVÉ PRO TVŮJ PROBLÉM: Návrat do lobby
-        if msg.type_desc in ("RES_LOBBY_LEFT", "RES_GAME_CANNOT_CONTINUE"):
-            self.state.in_game = False
-            self.state.in_lobby = False
-            self.state.waiting_for_opponent = False
-            self.state.round_result_visible = False
-            self.reconnect_wait = False
-
-            reason = msg.params[0] if msg.params else "Game ended"
-            toast(self.state, f"Exit: {reason}", 4.0)
-            return SceneId.LOBBY
-
-        if msg.type_desc == "RES_ROUND_RESULT":
-            self.state.last_round = " | ".join(msg.params)
-            self.state.waiting_for_opponent = False
-            self.state.round_result_visible = True
-            self.state.round_result_ttl = 3.0
-            return None
-
-        if msg.type_desc == "RES_MATCH_RESULT":
-            p = msg.params
-            self.state.last_match_winner_id = int(p[0])
-            self.state.last_match_p1wins, self.state.last_match_p2wins = (
-                int(p[1]),
-                int(p[2]),
-            )
-            self.state.round_result_visible = False
-            return SceneId.AFTER_MATCH
 
         if msg.type_desc == "RES_OPPONENT_DISCONNECTED":
+            log_err(
+                self.state,
+                f"SESSION: Opponent lost connection! Timeout in {msg.params[0]}s.",
+            )
             self.reconnect_wait = True
             return None
-
-        return None
 
     def draw(self, screen: pygame.Surface):
         draw_background(screen)

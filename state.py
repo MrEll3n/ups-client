@@ -64,18 +64,28 @@ def wire_str(type_desc: str, *params: str) -> str:
 
 
 def log_tx(state: AppState, type_desc: str, *params: str) -> None:
+    if type_desc in _SUPPRESS_WIRE and not state.debug_visible:
+        return
     line = f"[TX] {wire_str(type_desc, *params)}"
+    print(line, flush=True)  # Vynutí okamžitý výpis do terminálu
     state.log.append(line)
 
 
 def log_rx(state: AppState, msg: Message) -> None:
+    if msg.type_desc in _SUPPRESS_WIRE and not state.debug_visible:
+        return
     line = f"[RX] {msg}"
+    print(line, flush=True)  # Vynutí okamžitý výpis do terminálu
     state.log.append(line)
 
 
 def log_sys(state: AppState, msg: str) -> None:
-    state.log.append(f"[SYS] {msg}")
+    line = f"[SYS] {msg}"
+    print(line, flush=True)
+    state.log.append(line)
 
 
 def log_err(state: AppState, msg: str) -> None:
-    state.log.append(f"[ERR] {msg}")
+    line = f"[ERR] {msg}"
+    print(line, flush=True)
+    state.log.append(line)

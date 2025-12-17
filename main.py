@@ -64,27 +64,32 @@ def main():
         while True:
             try:
                 err = client.errors.get_nowait()
-                log_err(state, err)
                 if "Disconnected" in err or "Send failed" in err:
                     client.close()
+                    log_err(
+                        state, f"NETWORK: Connection lost ({err})"
+                    )  # Výpis do terminálu
+
                     if state.username and (state.in_game or state.in_lobby):
-                        log_sys(state, "Network lost. Attempting auto-reconnect...")
-                        pygame.time.wait(1000)  # Krátká pauza pro stabilizaci sítě
+                        log_sys(
+                            state,
+                            f"RECONNECT: Attempting to recover session for {state.username}...",
+                        )
+                        pygame.time.wait(1000)  # Pauza pro stabilizaci sítě
                         try:
                             client.connect()
                             if client.connected:
-                                # Reset času při úspěšném spojení
+                                # Důležité: Resetujeme čas kontaktu, aby hned nenaskočil timeout
                                 state.last_server_contact = pygame.time.get_ticks()
                                 client.send("REQ_LOGIN", state.username)
                                 log_sys(
                                     state,
-                                    f"RECONNECT: Socket opened, logging in as {state.username}",
+                                    f"RECONNECT: Socket restored, REQ_LOGIN sent.",
                                 )
-                        except:
-                            pass
+                        except Exception as e:
+                            log_err(state, f"RECONNECT: Recovery failed: {e}")
                     else:
                         state.scene = SceneId.CONNECT
-                        state.user_id = ""
                     break
             except Empty:
                 break
