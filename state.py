@@ -1,4 +1,3 @@
-# state.py
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import List
@@ -26,7 +25,7 @@ class AppState:
     last_move: str = ""
     waiting_for_opponent: bool = False
 
-    # NOVÉ: Pro Reconnect a synchronizaci
+    # Synchronizace a Reconnect
     p1_wins: int = 0
     p2_wins: int = 0
     last_server_contact: float = 0.0
@@ -52,11 +51,15 @@ def toast(state: AppState, msg: str, ttl: float = 3.0) -> None:
     state.toast_ttl = ttl
 
 
+# Layout
 W, H = 1100, 700
 M = 22
 TOPBAR = (M, M, W - 2 * M, 56)
 CENTER_CARD = ((W - 520) // 2, (H - 360) // 2, 520, 360)
 BOTTOM_HINT = (M, H - 90, W - 2 * M, 68)
+
+# Filtrování zpráv pro konzoli
+_SUPPRESS_WIRE = {"RES_PING", "REQ_PONG"}
 
 
 def wire_str(type_desc: str, *params: str) -> str:
@@ -67,7 +70,7 @@ def log_tx(state: AppState, type_desc: str, *params: str) -> None:
     if type_desc in _SUPPRESS_WIRE and not state.debug_visible:
         return
     line = f"[TX] {wire_str(type_desc, *params)}"
-    print(line, flush=True)  # Vynutí okamžitý výpis do terminálu
+    print(line, flush=True)  # Výpis do terminálu
     state.log.append(line)
 
 
@@ -75,7 +78,7 @@ def log_rx(state: AppState, msg: Message) -> None:
     if msg.type_desc in _SUPPRESS_WIRE and not state.debug_visible:
         return
     line = f"[RX] {msg}"
-    print(line, flush=True)  # Vynutí okamžitý výpis do terminálu
+    print(line, flush=True)  # Výpis do terminálu
     state.log.append(line)
 
 
