@@ -29,7 +29,7 @@ class AppState:
     # NOVÉ: Pro Reconnect a synchronizaci
     p1_wins: int = 0
     p2_wins: int = 0
-    last_server_contact: float = 0.0  # Čas posledního přijatého paketu
+    last_server_contact: float = 0.0
 
     round_result_visible: bool = False
     round_result_ttl: float = 0.0

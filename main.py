@@ -1,4 +1,3 @@
-# main.py
 from __future__ import annotations
 
 from queue import Empty
@@ -15,6 +14,7 @@ def main():
     pygame.init()
     screen = pygame.display.set_mode((W, H))
     pygame.display.set_caption("UPS – Rock Paper Scissors")
+
     clock = pygame.time.Clock()
 
     fonts = (
@@ -27,6 +27,9 @@ def main():
     client = TcpLineClient("127.0.0.1", 10000)
     state = AppState()
 
+    # FIX: Inicializace času kontaktu hned při startu, aby se nezobrazilo "Interrupted"
+    state.last_server_contact = pygame.time.get_ticks()
+
     scenes = {
         SceneId.CONNECT: ConnectScene(client, state, fonts),
         SceneId.LOBBY: LobbyScene(client, state, fonts),
@@ -38,16 +41,15 @@ def main():
     while running:
         dt = clock.tick(60) / 1000.0
 
-        # 1. Kontrola lokálního timeoutu (detekce vlastního odpojení)
+        # KONTROLA SERVERU: Pokud jsme ve hře a server nám 7s nic neposlal
         if state.in_game and state.last_server_contact > 0:
-            if (
-                pygame.time.get_ticks() - state.last_server_contact > 7000
-            ):  # 7 sekund bez PINGu
-                log_err(state, "Server heartbeat lost.")
+            elapsed = pygame.time.get_ticks() - state.last_server_contact
+            if elapsed > 7000:
+                log_err(state, "Heartbeat lost. Triggering local disconnect.")
                 client.errors.put("Disconnected: Server timeout")
                 state.last_server_contact = 0
 
-        # 2. Zpracování zpráv
+        # Zpracování zpráv ze serveru
         while True:
             try:
                 msg: Message = client.inbox.get_nowait()
@@ -58,28 +60,31 @@ def main():
             except Empty:
                 break
 
-        # 3. AUTOMATICKÝ RECONNECT
+        # AUTOMATICKÝ RECONNECT
         while True:
             try:
                 err = client.errors.get_nowait()
+                log_err(state, err)
                 if "Disconnected" in err or "Send failed" in err:
                     client.close()
-                    if state.username and state.in_game:
-                        log_sys(state, "Connection lost. Waiting 1s before retry...")
-                        pygame.time.wait(1000)  # Klíčová pauza pro stabilizaci sítě
+                    if state.username and (state.in_game or state.in_lobby):
+                        log_sys(state, "Network lost. Attempting auto-reconnect...")
+                        pygame.time.wait(1000)  # Krátká pauza pro stabilizaci sítě
                         try:
                             client.connect()
                             if client.connected:
-                                # RESETUJEME čas kontaktu, aby si klient hned nedal vlastní timeout
+                                # Reset času při úspěšném spojení
                                 state.last_server_contact = pygame.time.get_ticks()
                                 client.send("REQ_LOGIN", state.username)
                                 log_sys(
-                                    state, f"Auto-reconnect sent for {state.username}"
+                                    state,
+                                    f"RECONNECT: Socket opened, logging in as {state.username}",
                                 )
                         except:
                             pass
                     else:
                         state.scene = SceneId.CONNECT
+                        state.user_id = ""
                     break
             except Empty:
                 break
@@ -91,15 +96,16 @@ def main():
                 state.debug_visible = not state.debug_visible
             scenes[state.scene].handle_event(e)
 
-        # Timery (Toast, Round result)
         if state.toast_ttl > 0:
             state.toast_ttl -= dt
             if state.toast_ttl <= 0:
                 state.toast = ""
+
         if state.scene == SceneId.GAME and state.round_result_visible:
             state.round_result_ttl -= dt
             if state.round_result_ttl <= 0:
                 state.round_result_visible = False
+                state.last_round = ""
 
         scenes[state.scene].draw(screen)
         pygame.display.flip()
