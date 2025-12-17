@@ -306,10 +306,12 @@ def draw_round_result(
     hint = font_b.render(f"Next round in {ttl}...", True, (120, 120, 140))
     screen.blit(hint, hint.get_rect(center=(card_rect.centerx, card_rect.bottom - 30)))
 
+
 def safe_first_char(s: Optional[str], fallback: str = "?") -> str:
     if not s:
         return fallback
     return s[0]
+
 
 # =============================
 # Scenes
@@ -768,15 +770,12 @@ class GameScene:
 
         self.reconnect_wait = False
 
-        # --- NOVÉ: TLAČÍTKO FORFEIT (V TOP BARU) ---
-        # Stejná pozice jako Logout v Lobby
+        # Tlačítko FORFEIT (Vzdát se) v horní liště
         forfeit_w = 110
         forfeit_h = 32
         forfeit_x = top_rect.right - forfeit_w - 12
         forfeit_y = top_rect.centery - (forfeit_h // 2)
 
-        # Červený nádech tlačítka vyřešíme tím, že se jmenuje FORFEIT
-        # (HUDButton nemá vlastní barvu v konstruktoru, ale to nevadí)
         self.btn_forfeit = HUDButton(
             pygame.Rect(forfeit_x, forfeit_y, forfeit_w, forfeit_h), "FORFEIT"
         )
@@ -799,10 +798,8 @@ class GameScene:
         if self.state.round_result_visible or self.reconnect_wait:
             return
 
-        # Kliknutí na Forfeit (funguje vždy, když je aktivní input)
         if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
             if self.btn_forfeit.hit(e.pos):
-                # Odesláním LEAVE_LOBBY během hry se hra vzdává
                 self._send("REQ_LEAVE_LOBBY")
                 return
 
@@ -828,6 +825,33 @@ class GameScene:
                 self._send("REQ_PONG", msg.params[0])
             return None
 
+        # Synchronizace stavu (skóre) ze serveru při reconnectu
+        if msg.type_desc == "RES_STATE":
+            params_dict = {}
+            # Rozsekání parametrů: score=1:2;phase=InGame;
+            for part in msg.params[0].split(";"):
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    params_dict[k] = v
+
+            if "score" in params_dict:
+                try:
+                    s1, s2 = params_dict["score"].split(":")
+                    self.state.p1_wins = int(s1)
+                    self.state.p2_wins = int(s2)
+                    toast(self.state, f"State Synced! Score {s1}:{s2}", 2.0)
+                except ValueError:
+                    pass
+            return None
+
+        # Resetování UI při obnovení hry
+        if msg.type_desc in ("RES_GAME_STARTED", "RES_GAME_RESUMED"):
+            self.reconnect_wait = False
+            self.state.waiting_for_opponent = False
+            self.state.round_result_visible = False
+            self.state.last_move = ""
+            return None
+
         if msg.type_desc == "RES_ROUND_RESULT":
             self.state.last_round = " | ".join(msg.params)
             self.state.waiting_for_opponent = False
@@ -842,7 +866,6 @@ class GameScene:
             self.state.last_match_p2wins = int(p[2])
             self.state.round_result_visible = False
             self.state.scene = SceneId.AFTER_MATCH
-            self.state.waiting_for_rematch = False
             self.reconnect_wait = False
             return SceneId.AFTER_MATCH
 
@@ -852,30 +875,10 @@ class GameScene:
             self.reconnect_wait = True
             return None
 
-        if msg.type_desc == "RES_GAME_RESUMED":
-            toast(self.state, "Opponent reconnected! Play again!", 2.0)
-            self.reconnect_wait = False
-            self.state.waiting_for_opponent = False
-            self.state.last_move = ""
-            return None
-
-        if msg.type_desc == "RES_GAME_STARTED":
-            self.reconnect_wait = False
-            self.state.waiting_for_opponent = False
-            self.state.last_move = ""
-            return None
-
-        if msg.type_desc == "RES_GAME_CANNOT_CONTINUE":
-            reason = msg.params[0] if msg.params else "Game ended"
-            toast(self.state, f"{reason}", 3.0)
-            return None
-
         if msg.type_desc == "RES_LOBBY_LEFT":
             self.state.in_game = False
             self.state.in_lobby = False
             self.state.lobby_name = ""
-            self.state.waiting_for_rematch = False
-
             toast(self.state, "Left match.", 2.5)
             self.state.scene = SceneId.LOBBY
             return SceneId.LOBBY
@@ -896,43 +899,42 @@ class GameScene:
         draw_panel(screen, CENTER_CARD, "ROCK · PAPER · SCISSORS", self.font_b)
 
         mouse = pygame.mouse.get_pos()
-
-        # --- TOP BAR (FORFEIT TLAČÍTKO) ---
-        # Vykreslíme tlačítko Forfeit vpravo nahoře
         self.btn_forfeit.draw(screen, self.font_b, mouse)
 
-        # Nick hráče vedle tlačítka (volitelné, pro konzistenci s lobby)
+        # Vykreslení nicku a skóre
+        cc_rect = pygame.Rect(CENTER_CARD)
         nick_text = self.state.username if self.state.username else "Guest"
         nick_surf = self.font_b.render(nick_text, True, (150, 255, 150))
-        nick_rect = nick_surf.get_rect(
-            midright=(self.btn_forfeit.rect.left - 15, self.btn_forfeit.rect.centery)
+        screen.blit(
+            nick_surf,
+            nick_surf.get_rect(
+                midright=(
+                    self.btn_forfeit.rect.left - 15,
+                    self.btn_forfeit.rect.centery,
+                )
+            ),
         )
-        screen.blit(nick_surf, nick_rect)
-        # ----------------------------------
+
+        # Zobrazení aktuálního skóre zápasu (důležité pro přehled po reconnectu)
+        score_txt = f"MATCH SCORE: {self.state.p1_wins} - {self.state.p2_wins}"
+        s_surf = self.font_b.render(score_txt, True, (200, 200, 220))
+        screen.blit(s_surf, s_surf.get_rect(center=(cc_rect.centerx, cc_rect.y + 75)))
 
         if self.reconnect_wait:
-            cc_rect = pygame.Rect(CENTER_CARD)
             overlay = pygame.Surface((cc_rect.width, cc_rect.height), pygame.SRCALPHA)
             pygame.draw.rect(
                 overlay, (0, 0, 0, 200), overlay.get_rect(), border_radius=18
             )
             screen.blit(overlay, (cc_rect.x, cc_rect.y))
-
             txt = self.font_b.render("OPPONENT DISCONNECTED", True, (255, 100, 100))
             screen.blit(
                 txt, txt.get_rect(center=(cc_rect.centerx, cc_rect.centery - 20))
             )
-
             sub = self.font.render("Waiting for reconnection...", True, (200, 200, 200))
             screen.blit(
                 sub, sub.get_rect(center=(cc_rect.centerx, cc_rect.centery + 20))
             )
-
-            draw_toast(screen, TOPBAR, self.font, self.state)
-            draw_debug(screen, self.font, self.state, W, H)
-            return
-
-        if self.state.round_result_visible:
+        elif self.state.round_result_visible:
             draw_round_result(
                 screen,
                 CENTER_CARD,

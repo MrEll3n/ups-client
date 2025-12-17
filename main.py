@@ -4,11 +4,10 @@ from queue import Empty
 
 import pygame
 
-# Import rozdělených modulů
 from network import TcpLineClient
 from protocol import Message
 from scenes import AfterMatchScene, ConnectScene, GameScene, LobbyScene
-from state import AppState, H, SceneId, W, log_err, log_rx
+from state import AppState, H, SceneId, W, log_err, log_rx, toast
 
 
 def main():
@@ -60,7 +59,10 @@ def main():
                     client.close()
                     state.scene = SceneId.CONNECT
                     state.user_id = ""
-                    state.username = ""
+                    # state.username NEMAŽEME - zůstane v paměti pro Reconnect
+                    state.in_lobby = False
+                    state.in_game = False
+                    toast(state, "Connection lost! Try to reconnect.", 5.0)
                     break
             except Empty:
                 break
