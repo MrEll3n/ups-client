@@ -811,43 +811,104 @@ class GameScene:
                 self._choose("S")
 
     def on_message(self, msg: Message) -> Optional[SceneId]:
-        # Resetujeme časovač ticha serveru při každé zprávě
+        # Pokaždé, když přijde zpráva (včetně PINGu), resetujeme čas kontaktu
         self.state.last_server_contact = pygame.time.get_ticks()
 
-        if msg.type_desc == "RES_STATE":
-            log_sys(
-                self.state, f"SYNC: New world state: {msg.params[0]}"
-            )  # Debug do terminálu i konzole
+        # 1. OKAMŽITÁ ODPOVĚĎ NA PING (Klíčové pro stabilitu na serveru)
+        if msg.type_desc == "RES_PING":
+            if msg.params:
+                # Server poslal nonce, my ho musíme poslat zpět v REQ_PONG
+                self._send("REQ_PONG", msg.params[0])
+            return None
 
+        # 2. SYNCHRONIZACE STAVU (Používá se při prvním vstupu i při reconnectu)
+        if msg.type_desc == "RES_STATE":
+            log_sys(self.state, f"SYNC: State sync received: {msg.params[0]}")
+            # Parsování řetězce typu: score=1:2;hasMoved=true;phase=InGame;
             p_dict = {
                 p.split("=")[0]: p.split("=")[1]
                 for p in msg.params[0].split(";")
                 if "=" in p
             }
-            if "score" in p_dict:
-                log_sys(self.state, f"SYNC: Match score updated to {p_dict['score']}")
-                s1, s2 = p_dict["score"].split(":")
-                self.state.p1_wins, self.state.p2_wins = int(s1), int(s2)
 
+            # Obnova skóre
+            if "score" in p_dict:
+                try:
+                    s1, s2 = p_dict["score"].split(":")
+                    self.state.p1_wins, self.state.p2_wins = int(s1), int(s2)
+                    log_sys(self.state, f"SYNC: Score updated to {s1}:{s2}")
+                except (ValueError, IndexError):
+                    pass
+
+            # Obnova stavu tahu (zda už jsme u serveru "committed")
             if p_dict.get("hasMoved") == "true":
                 log_sys(self.state, "SYNC: Server remembers your move. Locking UI.")
                 self.state.waiting_for_opponent = True
+                # Pokud po reconnectu neznáme svůj tah, nastavíme zástupný symbol
                 if not self.state.last_move:
                     self.state.last_move = "?"
+            else:
+                self.state.waiting_for_opponent = False
             return None
 
-        if msg.type_desc == "RES_GAME_RESUMED":
-            log_sys(self.state, "SESSION: Server confirmed game resumption.")
+        # 3. AKTUALIZACE RECONNECT OVERLAYE
+        if msg.type_desc in ("RES_GAME_STARTED", "RES_GAME_RESUMED"):
+            log_sys(self.state, "SESSION: Gameplay active/resumed.")
             self.reconnect_wait = False
             return None
 
+        # 4. VÝSLEDKY KOLA A ZÁPASU
+        if msg.type_desc == "RES_ROUND_RESULT":
+            # msg.params: [winner_id, move1, move2]
+            self.state.last_round = " | ".join(msg.params)
+            self.state.waiting_for_opponent = False
+            self.state.round_result_visible = True
+            self.state.round_result_ttl = 3.0
+            self.state.last_move = ""
+            log_sys(self.state, f"GAME: Round result: {self.state.last_round}")
+            return None
+
+        if msg.type_desc == "RES_MATCH_RESULT":
+            # msg.params: [winner_id, p1_wins, p2_wins]
+            p = msg.params
+            self.state.last_match_winner_id = int(p[0])
+            self.state.last_match_p1wins, self.state.last_match_p2wins = (
+                int(p[1]),
+                int(p[2]),
+            )
+            self.state.round_result_visible = False
+            log_sys(self.state, f"GAME: Match finished. Winner ID: {p[0]}")
+            return SceneId.AFTER_MATCH
+
+        # 5. ODPOJENÍ SOUPEŘE (Soft)
         if msg.type_desc == "RES_OPPONENT_DISCONNECTED":
+            # msg.params[0] je časový limit pro návrat soupeře
+            self.reconnect_wait = True
             log_err(
                 self.state,
-                f"SESSION: Opponent lost connection! Timeout in {msg.params[0]}s.",
+                f"REMOTE: Opponent lost connection. Wait limit: {msg.params[0]}s",
             )
-            self.reconnect_wait = True
             return None
+
+        # 6. KRITICKÉ UKONČENÍ HRY (Návrat do lobby)
+        if msg.type_desc in ("RES_LOBBY_LEFT", "RES_GAME_CANNOT_CONTINUE"):
+            log_sys(self.state, "SESSION: Returning to lobby (Game ended).")
+            self.state.in_game = False
+            self.state.in_lobby = False
+            self.state.waiting_for_opponent = False
+            self.reconnect_wait = False
+            if msg.params:
+                toast(self.state, f"Disconnected: {msg.params[0]}", 4.0)
+            return SceneId.LOBBY
+
+        # 7. CHYBOVÉ HLÁŠENÍ
+        if msg.type_desc == "RES_ERROR":
+            err_msg = " | ".join(msg.params) if msg.params else "Unknown server error"
+            log_err(self.state, f"SERVER ERROR: {err_msg}")
+            toast(self.state, err_msg, 4.0)
+            return None
+
+        return None
 
     def draw(self, screen: pygame.Surface):
         draw_background(screen)
