@@ -55,14 +55,26 @@ def main():
             try:
                 err = client.errors.get_nowait()
                 log_err(state, err)
+
+                # Pokud dojde k odpojení během hry nebo lobby
                 if "Disconnected" in err or "Send failed" in err:
                     client.close()
-                    state.scene = SceneId.CONNECT
-                    state.user_id = ""
-                    # state.username NEMAŽEME - zůstane v paměti pro Reconnect
-                    state.in_lobby = False
-                    state.in_game = False
-                    toast(state, "Connection lost! Try to reconnect.", 5.0)
+                    toast(state, "Connection lost! Attempting auto-reconnect...", 5.0)
+
+                    # Pokus o okamžité znovupřipojení na pozadí
+                    try:
+                        client.connect()  # Zkusí otevřít socket
+                        if client.connected and state.username:
+                            # Pokud se spojení povedlo, hned pošleme LOGIN
+                            client.send("REQ_LOGIN", state.username)
+                            log_sys(state, f"Auto-reconnecting as {state.username}...")
+                        else:
+                            # Pokud se nepovedlo (kabel je stále venku), jdeme do CONNECT scény
+                            state.scene = SceneId.CONNECT
+                            state.user_id = ""
+                    except Exception as e:
+                        log_err(state, f"Auto-reconnect failed: {e}")
+                        state.scene = SceneId.CONNECT
                     break
             except Empty:
                 break
