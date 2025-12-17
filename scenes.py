@@ -444,65 +444,6 @@ class ConnectScene:
 
         draw_toast(screen, TOPBAR, self.font, self.state)
         draw_debug(screen, self.font, self.state, W, H)
-
-
-def draw(self, screen: pygame.Surface):
-    draw_background(screen)
-    draw_panel(screen, TOPBAR, "GAME", self.font_b)
-    draw_panel(screen, CENTER_CARD, "ROCK · PAPER · SCISSORS", self.font_b)
-
-    mouse = pygame.mouse.get_pos()
-
-    # --- ZDE BYLA CHYBA ---
-    if self.reconnect_wait:
-        # 1. NEJDŘÍVE PŘEVÉST TUPLE NA RECT
-        cc_rect = pygame.Rect(CENTER_CARD)
-
-        # 2. TEĎ POUŽÍVÁME cc_rect (NE CENTER_CARD) PRO PŘÍSTUP K .width A .height
-        overlay = pygame.Surface((cc_rect.width, cc_rect.height), pygame.SRCALPHA)
-        pygame.draw.rect(overlay, (0, 0, 0, 200), overlay.get_rect(), border_radius=18)
-
-        # Používáme cc_rect pro souřadnice
-        screen.blit(overlay, (cc_rect.x, cc_rect.y))
-
-        txt = self.font_b.render("OPPONENT DISCONNECTED", True, (255, 100, 100))
-        screen.blit(txt, txt.get_rect(center=(cc_rect.centerx, cc_rect.centery - 20)))
-
-        sub = self.font.render("Waiting for reconnection...", True, (200, 200, 200))
-        screen.blit(sub, sub.get_rect(center=(cc_rect.centerx, cc_rect.centery + 20)))
-
-        draw_toast(screen, TOPBAR, self.font, self.state)
-        draw_debug(screen, self.font, self.state, W, H)
-        return
-    # ----------------------
-
-    if self.state.round_result_visible:
-        draw_round_result(
-            screen,
-            CENTER_CARD,
-            self.state.last_round,
-            self.font_xl,
-            self.font_b,
-            self.state,
-        )
-    elif self.state.waiting_for_opponent:
-        draw_waiting_screen(
-            screen,
-            CENTER_CARD,
-            self.state.last_move,
-            self.font_xl,
-            self.font_b,
-            self.font_move,
-        )
-    else:
-        for b in (self.move_r, self.move_p, self.move_s):
-            b.enabled = True
-            b.draw(screen, self.font_move, self.font, mouse)
-
-    draw_toast(screen, TOPBAR, self.font, self.state)
-    draw_debug(screen, self.font, self.state, W, H)
-
-
 class LobbyScene:
     def __init__(self, client: TcpLineClient, state: AppState, fonts):
         self.client = client

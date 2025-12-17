@@ -27,6 +27,10 @@ def main():
     # Časovač pro neblokující pokusy o spojení
     reconnect_cooldown = 0.0
 
+    # Client-side keepalive: send REQ_PONG periodically even if we miss RES_PING.
+    # Server accepts REQ_PONG in all phases and only uses it to refresh last_pong.
+    pong_keepalive = 0.0
+
     scenes = {
         SceneId.CONNECT: ConnectScene(client, state, fonts),
         SceneId.LOBBY: LobbyScene(client, state, fonts),
@@ -41,6 +45,18 @@ def main():
         if reconnect_cooldown > 0:
             reconnect_cooldown -= dt
 
+        # 0. CLIENT KEEPALIVE (prevents server heartbeat timeout even if RES_PING is missed)
+        if client.connected:
+            pong_keepalive += dt
+            if pong_keepalive >= 1.5:
+                try:
+                    # Nonce is currently not validated by the server; keep a placeholder.
+                    client.send("REQ_PONG", "0")
+                except Exception:
+                    # Errors are handled via client.errors / reconnect logic.
+                    pass
+                pong_keepalive = 0.0
+
         # 1. OKAMŽITÉ ZPRACOVÁNÍ SÍTĚ (Priorita č. 1)
         while True:
             try:
@@ -53,10 +69,13 @@ def main():
             except Empty:
                 break
 
-        # 2. MONITORING SPOJENÍ (Local Heartbeat)
-        if (state.in_game or state.in_lobby) and state.last_server_contact > 0:
-            if pygame.time.get_ticks() - state.last_server_contact > 7000:
-                log_err(state, "No data from server for 7s. Disconnecting.")
+        # 2. MONITORING SPOJENÍ (Local Watchdog)
+        # Avoid aggressive timeouts: server may be idle if heartbeat is disabled.
+        # We only drop the socket if we've been connected, actively in a session,
+        # and received nothing for a longer interval.
+        if client.connected and (state.in_game or state.in_lobby) and state.last_server_contact > 0:
+            if pygame.time.get_ticks() - state.last_server_contact > 20000:
+                log_err(state, "No data from server for 20s. Disconnecting.")
                 client.close()
                 state.last_server_contact = 0
 
