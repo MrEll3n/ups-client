@@ -62,18 +62,20 @@ def main():
         while True:
             try:
                 err = client.errors.get_nowait()
-                log_err(state, err)
                 if "Disconnected" in err or "Send failed" in err:
                     client.close()
                     if state.username and state.in_game:
-                        toast(
-                            state, "Connection lost! Attempting auto-reconnect...", 5.0
-                        )
+                        log_sys(state, "Connection lost. Retrying in 1s...")
+                        pygame.time.wait(1000)
                         try:
                             client.connect()
                             if client.connected:
+                                # DŮLEŽITÉ: Resetujeme čas kontaktu hned po připojení
+                                state.last_server_contact = pygame.time.get_ticks()
                                 client.send("REQ_LOGIN", state.username)
-                                log_sys(state, f"Auto-reconnecting as {state.username}")
+                                log_sys(
+                                    state, f"Auto-reconnect sent for {state.username}"
+                                )
                         except:
                             pass
                     else:
