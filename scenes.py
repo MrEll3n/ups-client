@@ -783,6 +783,33 @@ class GameScene:
         self.state.waiting_for_opponent = True
         self._send("REQ_MOVE", move)
 
+    def handle_event(self, e: pygame.event.Event):
+        # Pokud je zobrazen overlay odpojení nebo výsledek kola, ignorujeme ovládání
+        if self.state.round_result_visible or self.reconnect_wait:
+            return
+
+        if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+            if self.btn_forfeit.hit(e.pos):
+                self._send("REQ_LEAVE_LOBBY")
+                return
+
+            # Pokud ještě hráč nevsadil, kontrolujeme tlačítka tahů
+            if not self.state.waiting_for_opponent:
+                if self.move_r.hit(e.pos):
+                    self._choose("R")
+                elif self.move_p.hit(e.pos):
+                    self._choose("P")
+                elif self.move_s.hit(e.pos):
+                    self._choose("S")
+
+        if e.type == pygame.KEYDOWN and not self.state.waiting_for_opponent:
+            if e.key == pygame.K_r:
+                self._choose("R")
+            elif e.key == pygame.K_p:
+                self._choose("P")
+            elif e.key == pygame.K_s:
+                self._choose("S")
+
     def on_message(self, msg: Message) -> Optional[SceneId]:
         self.state.last_server_contact = pygame.time.get_ticks()
 
