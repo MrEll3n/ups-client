@@ -1,10 +1,8 @@
-# main.py
 from queue import Empty
 
 import pygame
 
 from network import TcpLineClient
-from protocol import Message
 from scenes import AfterMatchScene, ConnectScene, GameScene, LobbyScene
 from state import AppState, H, SceneId, W, log_err, log_rx, log_sys
 
@@ -13,6 +11,7 @@ def main():
     pygame.init()
     screen = pygame.display.set_mode((W, H))
     clock = pygame.time.Clock()
+
     fonts = (
         pygame.font.SysFont("Segoe UI", 18),
         pygame.font.SysFont("Segoe UI", 22, bold=True),
@@ -24,11 +23,11 @@ def main():
     state = AppState()
     state.last_server_contact = pygame.time.get_ticks()
 
-    # Časovač pro neblokující pokusy o spojení
+    # Non-blocking reconnect cooldown (seconds)
     reconnect_cooldown = 0.0
 
     # Client-side keepalive: send REQ_PONG periodically even if we miss RES_PING.
-    # Server accepts REQ_PONG in all phases and only uses it to refresh last_pong.
+    # This prevents heartbeat timeouts caused by UI / OS stalls.
     pong_keepalive = 0.0
 
     scenes = {
@@ -40,40 +39,40 @@ def main():
 
     running = True
     while running:
-        # dt v sekundách
         dt = clock.tick(60) / 1000.0
-        if reconnect_cooldown > 0:
-            reconnect_cooldown -= dt
 
-        # --- UI TIMERS (fix: round-result overlay must expire) ---
-        # These attributes are expected to exist in AppState; guard with hasattr for safety.
-        if hasattr(state, "toast_ttl") and state.toast_ttl > 0:
+        # --- Timers (UI state) ---
+        if state.toast_ttl > 0:
             state.toast_ttl = max(0.0, state.toast_ttl - dt)
-            if state.toast_ttl == 0.0 and hasattr(state, "toast"):
+            if state.toast_ttl <= 0:
                 state.toast = ""
 
-        if hasattr(state, "round_result_visible") and state.round_result_visible:
-            if hasattr(state, "round_result_ttl"):
-                state.round_result_ttl = max(0.0, state.round_result_ttl - dt)
-                if state.round_result_ttl == 0.0:
-                    state.round_result_visible = False
-                    if hasattr(state, "last_round"):
-                        state.last_round = ""
-        # ---------------------------------------------------------
+        # Round result overlay timer (this was the main "client stuck" cause)
+        if state.round_result_visible and state.round_result_ttl > 0:
+            state.round_result_ttl = max(0.0, state.round_result_ttl - dt)
+            if state.round_result_ttl <= 0:
+                state.round_result_visible = False
+                # Deferred transition (e.g., AFTER_MATCH) once the last round overlay is done
+                if state.pending_scene is not None:
+                    state.scene = state.pending_scene
+                    state.pending_scene = None
 
-        # 0. CLIENT KEEPALIVE (prevents server heartbeat timeout even if RES_PING is missed)
-        if client.connected:
+        if reconnect_cooldown > 0:
+            reconnect_cooldown = max(0.0, reconnect_cooldown - dt)
+
+        # --- Client keepalive ---
+        if client.connected and (state.in_game or state.in_lobby):
             pong_keepalive += dt
             if pong_keepalive >= 1.5:
                 try:
-                    # Nonce is currently not validated by the server; keep a placeholder.
                     client.send("REQ_PONG", "0")
                 except Exception:
-                    # Errors are handled via client.errors / reconnect logic.
                     pass
                 pong_keepalive = 0.0
+        else:
+            pong_keepalive = 0.0
 
-        # 1. OKAMŽITÉ ZPRACOVÁNÍ SÍTĚ (Priorita č. 1)
+        # 1) Process network inbox (priority)
         while True:
             try:
                 msg = client.inbox.get_nowait()
@@ -85,10 +84,7 @@ def main():
             except Empty:
                 break
 
-        # 2. MONITORING SPOJENÍ (Local Watchdog)
-        # Avoid aggressive timeouts: server may be idle if heartbeat is disabled.
-        # We only drop the socket if we've been connected, actively in a session,
-        # and received nothing for a longer interval.
+        # 2) Local watchdog (avoid aggressive disconnects; server can be idle)
         if (
             client.connected
             and (state.in_game or state.in_lobby)
@@ -99,9 +95,9 @@ def main():
                 client.close()
                 state.last_server_contact = 0
 
-        # 3. NEBLOKUJÍCÍ RECONNECT LOGIKA
+        # 3) Non-blocking reconnect logic
         if (
-            not client.connected
+            (not client.connected)
             and state.username
             and (state.in_game or state.in_lobby)
         ):
@@ -112,11 +108,11 @@ def main():
                     if client.connected:
                         state.last_server_contact = pygame.time.get_ticks()
                         client.send("REQ_LOGIN", state.username)
-                    reconnect_cooldown = 2.0  # Zkusíme znovu až za 2s při selhání
-                except:
+                    reconnect_cooldown = 2.0
+                except Exception:
                     reconnect_cooldown = 2.0
 
-        # 4. CHYBY ZE SÍTĚ
+        # 4) Network errors
         while True:
             try:
                 err = client.errors.get_nowait()
@@ -126,7 +122,7 @@ def main():
             except Empty:
                 break
 
-        # 5. PYGAME UDÁLOSTI A VYKRESLOVÁNÍ
+        # 5) Pygame events + rendering
         for e in pygame.event.get():
             if e.type == pygame.QUIT:
                 running = False

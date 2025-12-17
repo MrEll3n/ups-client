@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
 from protocol import PROTOCOL_MAGIC, Message
 
@@ -25,21 +25,27 @@ class AppState:
     last_move: str = ""
     waiting_for_opponent: bool = False
 
-    # Synchronizace a Reconnect
+    # Synchronization + reconnect
     p1_wins: int = 0
     p2_wins: int = 0
     last_server_contact: float = 0.0
 
+    # Round overlay
     round_result_visible: bool = False
     round_result_ttl: float = 0.0
     last_round: str = ""
     last_match: str = ""
 
+    # After-match
     waiting_for_rematch: bool = False
     last_match_winner_id: int = 0
     last_match_p1wins: int = 0
     last_match_p2wins: int = 0
 
+    # Deferred scene transition (e.g., show last round first, then go to AFTER_MATCH)
+    pending_scene: Optional[SceneId] = None
+
+    # Toast + debug
     toast: str = "Welcome."
     toast_ttl: float = 3.0
     debug_visible: bool = False
@@ -58,7 +64,7 @@ TOPBAR = (M, M, W - 2 * M, 56)
 CENTER_CARD = ((W - 520) // 2, (H - 360) // 2, 520, 360)
 BOTTOM_HINT = (M, H - 90, W - 2 * M, 68)
 
-# Filtrování zpráv pro konzoli
+# Filtered message types for console
 _SUPPRESS_WIRE = {"RES_PING", "REQ_PONG"}
 
 
@@ -70,7 +76,7 @@ def log_tx(state: AppState, type_desc: str, *params: str) -> None:
     if type_desc in _SUPPRESS_WIRE and not state.debug_visible:
         return
     line = f"[TX] {wire_str(type_desc, *params)}"
-    print(line, flush=True)  # Výpis do terminálu
+    print(line, flush=True)
     state.log.append(line)
 
 
@@ -78,7 +84,7 @@ def log_rx(state: AppState, msg: Message) -> None:
     if msg.type_desc in _SUPPRESS_WIRE and not state.debug_visible:
         return
     line = f"[RX] {msg}"
-    print(line, flush=True)  # Výpis do terminálu
+    print(line, flush=True)
     state.log.append(line)
 
 
