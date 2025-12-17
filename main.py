@@ -45,6 +45,22 @@ def main():
         if reconnect_cooldown > 0:
             reconnect_cooldown -= dt
 
+        # --- UI TIMERS (fix: round-result overlay must expire) ---
+        # These attributes are expected to exist in AppState; guard with hasattr for safety.
+        if hasattr(state, "toast_ttl") and state.toast_ttl > 0:
+            state.toast_ttl = max(0.0, state.toast_ttl - dt)
+            if state.toast_ttl == 0.0 and hasattr(state, "toast"):
+                state.toast = ""
+
+        if hasattr(state, "round_result_visible") and state.round_result_visible:
+            if hasattr(state, "round_result_ttl"):
+                state.round_result_ttl = max(0.0, state.round_result_ttl - dt)
+                if state.round_result_ttl == 0.0:
+                    state.round_result_visible = False
+                    if hasattr(state, "last_round"):
+                        state.last_round = ""
+        # ---------------------------------------------------------
+
         # 0. CLIENT KEEPALIVE (prevents server heartbeat timeout even if RES_PING is missed)
         if client.connected:
             pong_keepalive += dt
@@ -73,7 +89,11 @@ def main():
         # Avoid aggressive timeouts: server may be idle if heartbeat is disabled.
         # We only drop the socket if we've been connected, actively in a session,
         # and received nothing for a longer interval.
-        if client.connected and (state.in_game or state.in_lobby) and state.last_server_contact > 0:
+        if (
+            client.connected
+            and (state.in_game or state.in_lobby)
+            and state.last_server_contact > 0
+        ):
             if pygame.time.get_ticks() - state.last_server_contact > 20000:
                 log_err(state, "No data from server for 20s. Disconnecting.")
                 client.close()
