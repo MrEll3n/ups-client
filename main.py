@@ -4,12 +4,13 @@ import pygame
 
 from network import TcpLineClient
 from scenes import AfterMatchScene, ConnectScene, GameScene, LobbyScene
-from state import AppState, H, SceneId, W, log_err, log_rx, log_sys
+from state import AppState, H, SceneId, W, log_err, log_rx, log_sys, toast
 
 
 def main():
     pygame.init()
     screen = pygame.display.set_mode((W, H))
+    pygame.display.set_caption("UPS – Rock Paper Scissors")
     clock = pygame.time.Clock()
 
     fonts = (
@@ -23,11 +24,10 @@ def main():
     state = AppState()
     state.last_server_contact = pygame.time.get_ticks()
 
-    # Non-blocking reconnect cooldown (seconds)
+    # Cooldown pro reconnect (v sekundách)
     reconnect_cooldown = 0.0
 
-    # Client-side keepalive: send REQ_PONG periodically even if we miss RES_PING.
-    # This prevents heartbeat timeouts caused by UI / OS stalls.
+    # Keepalive pro heartbeat
     pong_keepalive = 0.0
 
     scenes = {
@@ -41,18 +41,17 @@ def main():
     while running:
         dt = clock.tick(60) / 1000.0
 
-        # --- Timers (UI state) ---
+        # --- Timery (UI state) ---
         if state.toast_ttl > 0:
             state.toast_ttl = max(0.0, state.toast_ttl - dt)
             if state.toast_ttl <= 0:
                 state.toast = ""
 
-        # Round result overlay timer (this was the main "client stuck" cause)
+        # Round result overlay timer
         if state.round_result_visible and state.round_result_ttl > 0:
             state.round_result_ttl = max(0.0, state.round_result_ttl - dt)
             if state.round_result_ttl <= 0:
                 state.round_result_visible = False
-                # Deferred transition (e.g., AFTER_MATCH) once the last round overlay is done
                 if state.pending_scene is not None:
                     state.scene = state.pending_scene
                     state.pending_scene = None
@@ -72,7 +71,7 @@ def main():
         else:
             pong_keepalive = 0.0
 
-        # 1) Process network inbox (priority)
+        # 1) Zpracování příchozích zpráv
         while True:
             try:
                 msg = client.inbox.get_nowait()
@@ -84,51 +83,54 @@ def main():
             except Empty:
                 break
 
-        # 2) Local watchdog (avoid aggressive disconnects; server can be idle)
-        if (
-            client.connected
-            and (state.in_game or state.in_lobby)
-            and state.last_server_contact > 0
-        ):
+        # 2) Watchdog (detekce ticha ze strany serveru)
+        if client.connected and state.last_server_contact > 0:
+            # Sjednocený timeout pro všechny herní fáze (Lobby, Game, AfterMatch)
             if pygame.time.get_ticks() - state.last_server_contact > 20000:
                 log_err(state, "No data from server for 20s. Disconnecting.")
                 client.close()
                 state.last_server_contact = 0
 
-        if client.connected and state.scene == SceneId.AFTER_MATCH:
-            if pygame.time.get_ticks() - state.last_server_contact > 10000:  # 10s ticha
-                state.scene = SceneId.LOBBY
-                client.close()
-                log_sys(state, "Connection timed out")
+        # 3) Reconnect logika
+        # FIX: Povolujeme automatický reconnect v GAME i AFTER_MATCH fázích.
+        if (not client.connected) and state.username:
+            if state.scene in (SceneId.GAME, SceneId.AFTER_MATCH):
+                if reconnect_cooldown <= 0:
+                    try:
+                        log_sys(
+                            state, "Attempting to restore socket (Session Reconnect)..."
+                        )
+                        client.connect()
+                        if client.connected:
+                            state.last_server_contact = pygame.time.get_ticks()
+                            client.send("REQ_LOGIN", state.username)
+                        reconnect_cooldown = 2.0
+                    except Exception:
+                        reconnect_cooldown = 2.0
+            else:
+                # Pokud jsme v lobby nebo menu a ztratíme spojení, jdeme na login
+                log_sys(state, "Connection lost. Returning to menu.")
+                state.scene = SceneId.CONNECT
+                state.username = ""
+                state.in_lobby = False
+                state.in_game = False
 
-        # 3) Non-blocking reconnect logic
-        if (
-            (not client.connected)
-            and state.username
-            and (state.in_game or state.in_lobby)
-        ):
-            if reconnect_cooldown <= 0:
-                try:
-                    log_sys(state, "Attempting to restore socket...")
-                    client.connect()
-                    if client.connected:
-                        state.last_server_contact = pygame.time.get_ticks()
-                        client.send("REQ_LOGIN", state.username)
-                    reconnect_cooldown = 2.0
-                except Exception:
-                    reconnect_cooldown = 2.0
-
-        # 4) Network errors
+        # 4) Zpracování chyb sítě
         while True:
             try:
                 err = client.errors.get_nowait()
-                if "Disconnected" in err or "failed" in err:
-                    log_err(state, f"Network error: {err}")
-                    client.close()
+                log_err(state, f"Network error: {err}")
+                client.close()
+
+                # FIX: Pokud nastane chyba (např. WinError 10038) v AFTER_MATCH,
+                # neresetujeme scénu ani jméno, aby mohl proběhnout reconnect.
+                if state.scene not in (SceneId.GAME, SceneId.AFTER_MATCH):
+                    state.scene = SceneId.CONNECT
+                    state.username = ""
             except Empty:
                 break
 
-        # 5) Pygame events + rendering
+        # 5) Události Pygame + Vykreslování
         for e in pygame.event.get():
             if e.type == pygame.QUIT:
                 running = False
