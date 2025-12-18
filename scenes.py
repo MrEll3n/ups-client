@@ -448,7 +448,9 @@ class LobbyScene:
             self.state.in_game = False
             self.state.in_lobby = False
             self.state.lobby_name = ""
-            toast(self.state, "Left lobby.", 2.0)
+            self.state.waiting_for_opponent = False
+            self.state.waiting_for_rematch = False
+            toast(self.state, "Synchronized: No active lobby.", 2.0)
             return None
 
         if t == "RES_LOGOUT_OK":
@@ -608,19 +610,32 @@ class GameScene:
             return None
 
         if msg.type_desc == "RES_STATE":
-            # score=1:2;hasMoved=true;phase=InGame;
             if msg.params:
-                p_dict = {
-                    p.split("=")[0]: p.split("=")[1]
-                    for p in msg.params[0].split(";")
-                    if "=" in p
-                }
+                p_dict = {}
+                for part in msg.params[0].split(";"):
+                    if "=" in part:
+                        k, v = part.split("=", 1)
+                        p_dict[k.strip()] = v.strip()
+
                 if "score" in p_dict:
                     try:
                         s1, s2 = p_dict["score"].split(":")
                         self.state.p1_wins, self.state.p2_wins = int(s1), int(s2)
                     except Exception:
                         pass
+
+                has_moved = None
+                if "hasMoved" in p_dict:
+                    has_moved = p_dict["hasMoved"].lower() == "true"
+                    self.state.waiting_for_opponent = has_moved
+                    if not has_moved:
+                        self.state.last_move = ""
+
+                if "lastMove" in p_dict:
+                    mv = p_dict["lastMove"].strip().upper()
+                    if mv in ("R", "P", "S"):
+                        self.state.last_move = mv
+
             return None
 
         if msg.type_desc == "RES_GAME_STARTED":
@@ -825,23 +840,18 @@ class AfterMatchScene:
             return SceneId.GAME
 
         if msg.type_desc == "RES_GAME_CANNOT_CONTINUE":
-            reason = msg.params[0] if msg.params else "Game ended"
-            toast(self.state, f"{reason}", 3.0)
-
+            toast(self.state, "Opponent disconnected. Match closed.", 3.0)
+            # RESET STAVU (Aby se nevrátil do duchovní lobby)
             self.state.in_game = False
             self.state.in_lobby = False
             self.state.lobby_name = ""
-            self.state.waiting_for_opponent = False
             self.state.waiting_for_rematch = False
-
             return SceneId.LOBBY
 
         if msg.type_desc == "RES_LOBBY_LEFT":
             self.state.in_game = False
             self.state.in_lobby = False
             self.state.lobby_name = ""
-            self.state.waiting_for_rematch = False
-            toast(self.state, "Lobby closed by server.", 2.0)
             return SceneId.LOBBY
 
         return None
