@@ -51,6 +51,9 @@ def winner_label(state: AppState, winner_id_str: str) -> str:
     except Exception:
         return winner_id_str or "?"
 
+    if wid == 0:
+        return "Draw"
+
     # Prefer names if available
     if getattr(state, "p1_id", 0) == wid and getattr(state, "p1_name", ""):
         return state.p1_name
@@ -201,34 +204,49 @@ def draw_round_result(
     rect = pygame.Rect(rect_data)
 
     parts = round_str.split("|")
-    # expected: winner_id|p1Move|p2Move
     winner_id = parts[0].strip() if len(parts) >= 1 else "?"
     p1m = parts[1].strip() if len(parts) >= 2 else "-"
     p2m = parts[2].strip() if len(parts) >= 3 else "-"
 
     title = font_b.render("ROUND RESULT", True, (245, 245, 255))
-    screen.blit(title, title.get_rect(center=(rect.centerx, rect.y + 60)))
+    screen.blit(title, title.get_rect(center=(rect.centerx, rect.y + 40)))
 
-    # Winner line (prefer name if known)
+    # Logic for coloring
+    try:
+        wid = int(winner_id)
+    except:
+        wid = -1
+
     w_label = winner_label(state, winner_id)
-    winner = font_b.render(f"Winner: {w_label}", True, (200, 200, 220))
-    screen.blit(winner, winner.get_rect(center=(rect.centerx, rect.y + 110)))
+    winner_color = (255, 255, 255)
+    if wid == 0:
+        winner_text = "It's a Draw!"
+        winner_color = (255, 255, 150)
+    else:
+        winner_text = f"Winner: {w_label}"
+        winner_color = (100, 255, 100)
 
-    mid_y = rect.centery + 10
+    winner_surf = font_b.render(winner_text, True, winner_color)
+    screen.blit(winner_surf, winner_surf.get_rect(center=(rect.centerx, rect.y + 85)))
+
+    mid_y = rect.centery + 20
     left_center = (rect.x + rect.width // 4, mid_y)
     right_center = (rect.x + 3 * rect.width // 4, mid_y)
 
     pygame.draw.line(
         screen,
         (80, 80, 100),
-        (rect.centerx, rect.y + 90),
+        (rect.centerx, rect.y + 100),
         (rect.centerx, rect.bottom - 60),
         2,
     )
 
     # Left (P1)
-    lbl_p1 = font_b.render(player_label(state, 1), True, (200, 200, 200))
-    screen.blit(lbl_p1, lbl_p1.get_rect(center=(left_center[0], rect.y + 110)))
+    p1_text_color = (
+        (100, 255, 100) if wid == state.p1_id and wid != 0 else (200, 200, 200)
+    )
+    lbl_p1 = font_b.render(player_label(state, 1), True, p1_text_color)
+    screen.blit(lbl_p1, lbl_p1.get_rect(center=(left_center[0], rect.y + 115)))
 
     mv1 = font_xl.render(safe_first_char(p1m), True, (255, 255, 255))
     screen.blit(mv1, mv1.get_rect(center=(left_center[0], mid_y)))
@@ -236,11 +254,14 @@ def draw_round_result(
     full1 = font_b.render(
         move_letter_to_name(p1m) or (p1m or "-"), True, (150, 150, 170)
     )
-    screen.blit(full1, full1.get_rect(center=(left_center[0], mid_y + 40)))
+    screen.blit(full1, full1.get_rect(center=(left_center[0], mid_y + 45)))
 
     # Right (P2)
-    lbl_p2 = font_b.render(player_label(state, 2), True, (200, 200, 200))
-    screen.blit(lbl_p2, lbl_p2.get_rect(center=(right_center[0], rect.y + 110)))
+    p2_text_color = (
+        (100, 255, 100) if wid == state.p2_id and wid != 0 else (200, 200, 200)
+    )
+    lbl_p2 = font_b.render(player_label(state, 2), True, p2_text_color)
+    screen.blit(lbl_p2, lbl_p2.get_rect(center=(right_center[0], rect.y + 115)))
 
     mv2 = font_xl.render(safe_first_char(p2m), True, (255, 255, 255))
     screen.blit(mv2, mv2.get_rect(center=(right_center[0], mid_y)))
@@ -248,11 +269,11 @@ def draw_round_result(
     full2 = font_b.render(
         move_letter_to_name(p2m) or (p2m or "-"), True, (150, 150, 170)
     )
-    screen.blit(full2, full2.get_rect(center=(right_center[0], mid_y + 40)))
+    screen.blit(full2, full2.get_rect(center=(right_center[0], mid_y + 45)))
 
     ttl = int(state.round_result_ttl + 0.9)
     hint = font_b.render(f"Next screen in {ttl}...", True, (120, 120, 140))
-    screen.blit(hint, hint.get_rect(center=(rect.centerx, rect.bottom - 30)))
+    screen.blit(hint, hint.get_rect(center=(rect.centerx, rect.bottom - 25)))
 
 
 # =============================
@@ -668,7 +689,6 @@ class GameScene:
             return None
 
         if msg.type_desc == "RES_STATE":
-            # Example: score=1:2;hasMoved=true;lastMove=R;phase=InGame;p1Id=1;p1Name=Alice;p2Id=2;p2Name=Bob;
             if msg.params:
                 p_dict = {}
                 for part in msg.params[0].split(";"):
@@ -676,7 +696,6 @@ class GameScene:
                         k, v = part.split("=", 1)
                         p_dict[k.strip()] = v.strip()
 
-                # score
                 if "score" in p_dict:
                     try:
                         s1, s2 = p_dict["score"].split(":")
@@ -684,7 +703,6 @@ class GameScene:
                     except Exception:
                         pass
 
-                # identities (optional)
                 if "p1Id" in p_dict:
                     try:
                         self.state.p1_id = int(p_dict["p1Id"])
@@ -700,14 +718,12 @@ class GameScene:
                 if "p2Name" in p_dict:
                     self.state.p2_name = p_dict["p2Name"]
 
-                # hasMoved -> restore waiting UI
                 if "hasMoved" in p_dict:
                     has_moved = p_dict["hasMoved"].lower() == "true"
                     self.state.waiting_for_opponent = has_moved
                     if not has_moved:
                         self.state.last_move = ""
 
-                # lastMove -> restore the shown letter
                 if "lastMove" in p_dict:
                     mv = p_dict["lastMove"].strip().upper()
                     if mv in ("R", "P", "S"):
@@ -730,9 +746,7 @@ class GameScene:
             self.reconnect_wait = False
             return None
 
-        # ---- Round result (now includes score) ----
         if msg.type_desc == "RES_ROUND_RESULT":
-            # msg.params: [winner_id, p1_move, p2_move, p1_wins, p2_wins]
             p = msg.params
             if len(p) >= 5:
                 winner_id, p1m, p2m, s1, s2 = p[0], p[1], p[2], p[3], p[4]
@@ -743,7 +757,6 @@ class GameScene:
                     pass
                 self.state.last_round = f"{winner_id}|{p1m}|{p2m}"
             else:
-                # Backward compatible: [winner_id, p1_move, p2_move]
                 self.state.last_round = " | ".join(p)
 
             self.state.waiting_for_opponent = False
@@ -753,7 +766,6 @@ class GameScene:
             log_sys(self.state, f"GAME: Round result: {self.state.last_round}")
             return None
 
-        # ---- Match result: defer switch until last round overlay finishes ----
         if msg.type_desc == "RES_MATCH_RESULT":
             p = msg.params
             try:
@@ -869,7 +881,7 @@ class AfterMatchScene:
         cc_rect = pygame.Rect(CENTER_CARD)
         x = cc_rect.x + 28
         w = cc_rect.width - 56
-        y = cc_rect.y + 180
+        y = cc_rect.y + 195
 
         self.btn_rematch = HUDButton(pygame.Rect(x, y, w, 48), "REMATCH")
         self.btn_exit = HUDButton(pygame.Rect(x, y + 60, w, 48), "EXIT TO MENU")
@@ -942,7 +954,7 @@ class AfterMatchScene:
         draw_background(screen)
 
         draw_panel(screen, TOPBAR, "AFTER MATCH", self.font_b)
-        draw_panel(screen, CENTER_CARD, "RESULT", self.font_b)
+        draw_panel(screen, CENTER_CARD, "MATCH SUMMARY", self.font_b)
         draw_panel(screen, BOTTOM_HINT, "INFO", self.font_b)
 
         cc = pygame.Rect(CENTER_CARD)
@@ -952,16 +964,31 @@ class AfterMatchScene:
         s1 = self.state.last_match_p1wins
         s2 = self.state.last_match_p2wins
 
-        title = self.font_xl.render("Match finished", True, (245, 245, 255))
-        screen.blit(title, title.get_rect(center=(cc.centerx, cc.y + 70)))
+        # Identity logic
+        try:
+            my_id = int(self.state.user_id)
+        except:
+            my_id = -1
 
-        score = self.font_b.render(f"Final score: {s1} - {s2}", True, (200, 200, 220))
-        screen.blit(score, score.get_rect(center=(cc.centerx, cc.y + 120)))
+        is_me_winner = w_id == my_id and w_id != 0
+        title_text = "VICTORY!" if is_me_winner else "DEFEAT"
+        title_color = (100, 255, 100) if is_me_winner else (255, 100, 100)
 
-        # Winner name if possible
-        w_label = winner_label(self.state, str(w_id))
-        winner = self.font_b.render(f"Winner: {w_label}", True, (150, 255, 150))
-        screen.blit(winner, winner.get_rect(center=(cc.centerx, cc.y + 155)))
+        if w_id == 0:
+            title_text = "IT'S A DRAW"
+            title_color = (255, 255, 150)
+
+        title = self.font_xl.render(title_text, True, title_color)
+        screen.blit(title, title.get_rect(center=(cc.centerx, cc.y + 60)))
+
+        score_txt = f"{self.state.p1_name}: {s1}  —  {self.state.p2_name}: {s2}"
+        score = self.font_b.render(score_txt, True, (200, 200, 220))
+        screen.blit(score, score.get_rect(center=(cc.centerx, cc.y + 110)))
+
+        w_name = winner_label(self.state, str(w_id))
+        w_final_text = f"Grand Winner: {w_name}" if w_id != 0 else "Result: Tie"
+        winner = self.font_b.render(w_final_text, True, (255, 255, 255))
+        screen.blit(winner, winner.get_rect(center=(cc.centerx, cc.y + 150)))
 
         self.btn_rematch.enabled = not self.state.waiting_for_rematch
         self.btn_rematch.draw(screen, self.font_b, mouse)
