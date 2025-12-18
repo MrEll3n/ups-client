@@ -85,34 +85,20 @@ def main():
 
         # 2) Watchdog (detekce ticha ze strany serveru)
         if client.connected and state.last_server_contact > 0:
-            # Standardní timeout během hry/lobby
-            if (
-                state.in_game or state.in_lobby
-            ) and pygame.time.get_ticks() - state.last_server_contact > 20000:
+            # Sjednocený timeout pro všechny herní fáze (Lobby, Game, AfterMatch)
+            if pygame.time.get_ticks() - state.last_server_contact > 20000:
                 log_err(state, "No data from server for 20s. Disconnecting.")
                 client.close()
                 state.last_server_contact = 0
 
-            # IMPLEMENTOVANÝ FIX: Přísnější timeout v AfterMatch
-            # Pokud se v AfterMatch spojení přeruší, nebudeme se pokoušet o reconnect,
-            # protože server už lobby pravděpodobně vyčistil.
-            elif (
-                state.scene == SceneId.AFTER_MATCH
-                and pygame.time.get_ticks() - state.last_server_contact > 10000
-            ):
-                log_err(state, "Connection lost in AfterMatch. Returning to login.")
-                client.close()
-                state.scene = SceneId.CONNECT  # Návrat na začátek
-                state.username = ""  # Reset jména, aby reconnect logic níže neběžela
-
-        # 3) Reconnect logika (pouze pro IN_GAME fázi)
-        # FIX: Reconnect běží pouze pokud jsme ve hře. V AfterMatch nebo Lobby se vracíme do menu.
+        # 3) Reconnect logika
+        # FIX: Povolujeme automatický reconnect v GAME i AFTER_MATCH fázích.
         if (not client.connected) and state.username:
-            if state.scene == SceneId.GAME:
+            if state.scene in (SceneId.GAME, SceneId.AFTER_MATCH):
                 if reconnect_cooldown <= 0:
                     try:
                         log_sys(
-                            state, "Attempting to restore socket (Game Reconnect)..."
+                            state, "Attempting to restore socket (Session Reconnect)..."
                         )
                         client.connect()
                         if client.connected:
@@ -122,7 +108,7 @@ def main():
                     except Exception:
                         reconnect_cooldown = 2.0
             else:
-                # Pokud nejsme v aktivní hře a ztratíme spojení, resetujeme stav do menu
+                # Pokud jsme v lobby nebo menu a ztratíme spojení, jdeme na login
                 log_sys(state, "Connection lost. Returning to menu.")
                 state.scene = SceneId.CONNECT
                 state.username = ""
@@ -135,8 +121,10 @@ def main():
                 err = client.errors.get_nowait()
                 log_err(state, f"Network error: {err}")
                 client.close()
-                # Pokud nastane kritická chyba (jako WinError 10038), okamžitě do menu
-                if state.scene != SceneId.GAME:
+
+                # FIX: Pokud nastane chyba (např. WinError 10038) v AFTER_MATCH,
+                # neresetujeme scénu ani jméno, aby mohl proběhnout reconnect.
+                if state.scene not in (SceneId.GAME, SceneId.AFTER_MATCH):
                     state.scene = SceneId.CONNECT
                     state.username = ""
             except Empty:
