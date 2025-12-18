@@ -30,6 +30,12 @@ class AppState:
     p2_wins: int = 0
     last_server_contact: float = 0.0
 
+    # Optional identity (server may provide via RES_STATE)
+    p1_id: int = 0
+    p2_id: int = 0
+    p1_name: str = ""
+    p2_name: str = ""
+
     # Round overlay
     round_result_visible: bool = False
     round_result_ttl: float = 0.0
