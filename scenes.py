@@ -827,15 +827,21 @@ class AfterMatchScene:
         if msg.type_desc == "RES_GAME_CANNOT_CONTINUE":
             reason = msg.params[0] if msg.params else "Game ended"
             toast(self.state, f"{reason}", 3.0)
+
+            self.state.in_game = False
+            self.state.in_lobby = False
+            self.state.lobby_name = ""
+            self.state.waiting_for_opponent = False
             self.state.waiting_for_rematch = False
-            return None
+
+            return SceneId.LOBBY
 
         if msg.type_desc == "RES_LOBBY_LEFT":
             self.state.in_game = False
             self.state.in_lobby = False
             self.state.lobby_name = ""
             self.state.waiting_for_rematch = False
-            toast(self.state, "Left lobby.", 2.0)
+            toast(self.state, "Lobby closed by server.", 2.0)
             return SceneId.LOBBY
 
         return None
