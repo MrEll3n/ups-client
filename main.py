@@ -95,6 +95,12 @@ def main():
                 client.close()
                 state.last_server_contact = 0
 
+        if client.connected and state.scene == SceneId.AFTER_MATCH:
+            if pygame.time.get_ticks() - state.last_server_contact > 10000:  # 10s ticha
+                state.scene = SceneId.LOBBY
+                client.close()
+                log_sys(state, "Connection timed out")
+
         # 3) Non-blocking reconnect logic
         if (
             (not client.connected)
